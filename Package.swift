@@ -5,18 +5,24 @@ import PackageDescription
 
 let package = Package(
     name: "ImmersiveRPCKit",
+    platforms: [
+        .visionOS(.v26)
+    ],
     products: [
         // Products define the executables and libraries a package produces, making them visible to other packages.
         .library(
             name: "ImmersiveRPCKit",
             targets: ["ImmersiveRPCKit"]
-        ),
+        )
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
         // Targets can depend on other targets in this package and products from dependencies.
         .target(
-            name: "ImmersiveRPCKit"
+            name: "ImmersiveRPCKit",
+            swiftSettings: [
+                .unsafeFlags(["-Xcc", "-DACCELERATE_NEW_LAPACK"])
+            ]
         ),
         .testTarget(
             name: "ImmersiveRPCKitTests",
