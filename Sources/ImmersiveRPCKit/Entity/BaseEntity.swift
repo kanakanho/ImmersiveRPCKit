@@ -14,7 +14,8 @@ import simd
 ///
 /// `RPCRequest(_:)` に渡すと送信先指定なしで全 Peer へ送られます。
 /// 片方のスコープのみ持つ Entity では `typealias BroadcastMethod = Never` とします。
-protocol RPCBroadcastMethod: Codable {
+/// `Sendable` は `AnyRPCMethod` の `@Sendable` クロージャキャプチャのために必要です。
+protocol RPCBroadcastMethod: Codable, Sendable {
     /// このメソッドを実行するハンドラの型
     associatedtype Handler
     /// ハンドラでメソッドを実行し、結果を返す
@@ -33,7 +34,8 @@ extension RPCBroadcastMethod {
 ///
 /// `RPCRequest(_:to:)` に渡すと指定した Peer ID へのみ送られます。
 /// 片方のスコープのみ持つ Entity では `typealias UnicastMethod = Never` とします。
-protocol RPCUnicastMethod: Codable {
+/// `Sendable` は `AnyRPCMethod` の `@Sendable` クロージャキャプチャのために必要です。
+protocol RPCUnicastMethod: Codable, Sendable {
     /// このメソッドを実行するハンドラの型
     associatedtype Handler
     /// ハンドラでメソッドを実行し、結果を返す
@@ -52,6 +54,7 @@ extension RPCUnicastMethod {
 ///
 /// ケースなしの uninhabited enum なので、インスタンスを生成できません。
 /// `typealias BroadcastMethod = NoMethod<MyHandler>` のようにして使います。
+/// `@unchecked Sendable`: ケースがなくインスタンス不存在のため送信されることはなく安全。
 enum NoMethod<H>: RPCBroadcastMethod, RPCUnicastMethod {
     typealias Handler = H
 
@@ -74,6 +77,9 @@ enum NoMethod<H>: RPCBroadcastMethod, RPCUnicastMethod {
     /// 明示的に宣言して 2 つのプロトコルの拡張間の曖昧さを回避
     var allowRetry: Bool { true }
 }
+
+// NoMethod はケースなし（uninhabited）のため @unchecked Sendable は安全
+extension NoMethod: @unchecked Sendable {}
 
 // MARK: - RPCEntity
 

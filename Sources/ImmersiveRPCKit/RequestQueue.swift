@@ -47,10 +47,11 @@ class RequestQueue {
     }
     
     private func startRetryLoop() {
-        retryTask = Task {
+        retryTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(timeout))
-                checkForRetries()
+                guard let self else { return }
+                try? await Task.sleep(for: .seconds(self.timeout))
+                self.checkForRetries()
             }
         }
     }
@@ -87,6 +88,7 @@ class RequestQueue {
     
     /// Check for requests that need to be retried
     private func checkForRetries() {
+        guard !pendingRequests.isEmpty else { return }
         let now = Date()
         var requestsToRetry: [UUID] = []
         var requestsToRemove: [UUID] = []

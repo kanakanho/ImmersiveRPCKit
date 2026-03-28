@@ -8,11 +8,37 @@
 import Accelerate
 import simd
 
+// MARK: - simd_double4x4 行优先ヘルパー
+
+/// `[[Double]]`（行優先形式）と `simd_double4x4`（列優先形式）間の変換ユーティリティ。
+/// Hardware 加速された BLAS 行列積・逆行列を利用するために使用する。
+extension simd_double4x4 {
+    /// 行優先 `[[Double]]` から `simd_double4x4` を生成する。
+    /// `rows[row][col]` が列 `col` のベクトル要素 `[row]` にマップされる。
+    fileprivate init(rowMajor rows: [[Double]]) {
+        self.init(
+            columns: (
+                SIMD4<Double>(rows[0][0], rows[1][0], rows[2][0], rows[3][0]),
+                SIMD4<Double>(rows[0][1], rows[1][1], rows[2][1], rows[3][1]),
+                SIMD4<Double>(rows[0][2], rows[1][2], rows[2][2], rows[3][2]),
+                SIMD4<Double>(rows[0][3], rows[1][3], rows[2][3], rows[3][3])
+            ))
+    }
+    
+    /// `simd_double4x4` を行優先 `[[Double]]` に変換する。
+    fileprivate var rowMajor: [[Double]] {
+        (0..<4).map { row in
+            [columns.0[row], columns.1[row], columns.2[row], columns.3[row]]
+        }
+    }
+}
+
+/// 汎用 NxM 行列積（非 4x4 の場合に使用）
 func matmul(_ A: [[Double]], _ B: [[Double]]) -> [[Double]] {
     let rowsA = A.count
     let colsA = A[0].count
     let colsB = B[0].count
-
+    
     var result = Array(repeating: Array(repeating: 0.0, count: colsB), count: rowsA)
     for i in 0..<rowsA {
         for j in 0..<colsB {
@@ -24,25 +50,18 @@ func matmul(_ A: [[Double]], _ B: [[Double]]) -> [[Double]] {
     return result
 }
 
+/// 4x4 行列積（simd を利用した Hardware 加速版）
 func matrixMul4x4(_ A: [[Double]], _ B: [[Double]]) -> [[Double]] {
-    var result = [[Double]](repeating: [Double](repeating: 0, count: 4), count: 4)
-    for i in 0..<4 {
-        for j in 0..<4 {
-            for k in 0..<4 {
-                result[i][j] += A[i][k] * B[k][j]
-            }
-        }
-    }
-    return result
+    (simd_double4x4(rowMajor: A) * simd_double4x4(rowMajor: B)).rowMajor
 }
 
 func LU(_ A: [[Double]]) -> ([[Double]], [[Double]]) {
     var L = [[Double]](repeating: [Double](repeating: 0, count: 4), count: 4)
     var U = [[Double]](repeating: [Double](repeating: 0, count: 4), count: 4)
-
+    
     for i in 0..<4 {
         L[i][i] = 1  // 対角成分は1
-
+        
         for j in i..<4 {
             var sum: Double = 0.0
             for k in 0..<i {
@@ -50,7 +69,7 @@ func LU(_ A: [[Double]]) -> ([[Double]], [[Double]]) {
             }
             U[i][j] = A[i][j] - sum
         }
-
+        
         for j in (i + 1)..<4 {
             var sum: Double = 0.0
             for k in 0..<i {
@@ -59,7 +78,7 @@ func LU(_ A: [[Double]]) -> ([[Double]], [[Double]]) {
             L[j][i] = (A[j][i] - sum) / (U[i][i])
         }
     }
-
+    
     return (L, U)
 }
 
@@ -67,7 +86,7 @@ func eqSolve(_ A: [[Double]], _ Q: [[Double]]) -> [[Double]] {
     var (L, U) = LU(A)
     var Y = [[Double]](repeating: [Double](repeating: 0, count: 4), count: 4)
     var X = [[Double]](repeating: [Double](repeating: 0, count: 4), count: 4)
-
+    
     // 前進代入 L * Y = Q
     for i in 0..<4 {
         var dot = [Double](repeating: 0, count: 4)
@@ -76,12 +95,12 @@ func eqSolve(_ A: [[Double]], _ Q: [[Double]]) -> [[Double]] {
                 dot[k] += L[i][j] * Y[j][k]
             }
         }
-
+        
         for k in 0..<4 {
             Y[i][k] = Q[i][k] - dot[k]
         }
     }
-
+    
     // 後退代入 U * X = Y
     for i in stride(from: 3, through: 0, by: -1) {
         if abs(U[i][i]) < 1e-8 {  // 0除算防止
@@ -98,7 +117,7 @@ func eqSolve(_ A: [[Double]], _ Q: [[Double]]) -> [[Double]] {
             X[i][k] = (Y[i][k] - dot[k]) / U[i][i]
         }
     }
-
+    
     return X
 }
 
@@ -114,7 +133,7 @@ func svd(_ matrix: simd_double3x3) -> (U: simd_double3x3, S: simd_double3, V: si
     var info = Int32(0)
     var lwork = Int32(-1)
     var work = [Double](repeating: 0, count: 1)
-
+    
     var m = Int32(3)
     var n = Int32(3)
     var lda = m
@@ -122,20 +141,20 @@ func svd(_ matrix: simd_double3x3) -> (U: simd_double3x3, S: simd_double3, V: si
     var ldvt = n
     var jobu: Int8 = 65  // 'A'
     var jobvt: Int8 = 65  // 'A'
-
+    
     // Query and allocate the optimal workspace
     dgesvd_(&jobu, &jobvt, &m, &n, &a, &lda, &s, &u, &ldu, &vt, &ldvt, &work, &lwork, &info)
-
+    
     lwork = Int32(work[0])
     work = [Double](repeating: 0, count: Int(lwork))
-
+    
     // Compute SVD
     dgesvd_(&jobu, &jobvt, &m, &n, &a, &lda, &s, &u, &ldu, &vt, &ldvt, &work, &lwork, &info)
-
+    
     var U = simd_double3x3()
     var V = simd_double3x3()
     var S = simd_double3()
-
+    
     for i in 0..<3 {
         S[i] = s[i]
         for j in 0..<3 {
@@ -143,7 +162,7 @@ func svd(_ matrix: simd_double3x3) -> (U: simd_double3x3, S: simd_double3, V: si
             V[i][j] = vt[j * 3 + i]
         }
     }
-
+    
     return (U, S, V)
 }
 
@@ -172,18 +191,18 @@ func removeScaleAffineMatrix(_ matrix: [[Double]]) -> [[Double]] {
         SIMD3<Double>(matrix[0][1], matrix[1][1], matrix[2][1]),
         SIMD3<Double>(matrix[0][2], matrix[1][2], matrix[2][2])
     )
-
+    
     // 特異値分解
     let (R, _) = polar(M)
-
+    
     var newMatrix = matrix
-
+    
     for i in 0..<3 {
         for j in 0..<3 {
             newMatrix[i][j] = Double(R[i][j])
         }
     }
-
+    
     return newMatrix
 }
 
@@ -216,135 +235,6 @@ func matmul4x4_4x1(_ A: simd_float4x4, _ B: SIMD4<Float>) -> SIMD3<Float> {
     return SIMD3<Float>(result[0], result[1], result[2])
 }
 
-func matmul4x4_3x1(_ A: simd_float4x4, _ B: SIMD3<Float>) -> SIMD3<Float> {
-    let Am: [[Float]] = A.floatList
-    let Bm: [Float] = [B.x, B.y, B.z, 1.0]
-    let result = matmul4x4_4x1(Am, Bm)
-    return SIMD3<Float>(result[0], result[1], result[2])
-}
-
-func affineMatrixToAngle(_ matrix: [[Double]]) -> (Double, Double, Double) {
-    let x = atan2(matrix[2][1], matrix[2][2])
-    let y = atan2(-matrix[2][0], sqrt(pow(matrix[2][1], 2) + pow(matrix[2][2], 2)))
-    let z = atan2(matrix[1][0], matrix[0][0])
-    return (x, y, z)
-}
-
-func calcRotation(_ A: [[[Double]]], _ B: [[[Double]]], _ affineMatrix: [[Double]]) -> [[Double]] {
-    // A[1],A[2],A[3] の位置 から A[0]の位置を引いた情報を集める
-    // let shiftA0: [Double] = [
-    //     A[0][0][3] - A[0][0][3],
-    //     A[0][1][3] - A[0][1][3],
-    //     A[0][2][3] - A[0][2][3]
-    // ]
-    // let shiftA1: [Double] = [
-    //     A[1][0][3] - A[0][0][3],
-    //     A[1][1][3] - A[0][1][3],
-    //     A[1][2][3] - A[0][2][3]
-    // ]
-    let shiftA2: [Double] = [
-        A[2][0][3] - A[0][0][3],
-        A[2][1][3] - A[0][1][3],
-        A[2][2][3] - A[0][2][3],
-    ]
-    let shiftA3: [Double] = [
-        A[3][0][3] - A[0][0][3],
-        A[3][1][3] - A[0][1][3],
-        A[3][2][3] - A[0][2][3],
-    ]
-
-    // let shiftB0: [Double] = [
-    //     B[0][0][3] - B[0][0][3],
-    //     B[0][1][3] - B[0][1][3],
-    //     B[0][2][3] - B[0][2][3]
-    // ]
-    // let shiftB1: [Double] = [
-    //     B[1][0][3] - B[0][0][3],
-    //     B[1][1][3] - B[0][1][3],
-    //     B[1][2][3] - B[0][2][3]
-    // ]
-    let shiftB2: [Double] = [
-        B[2][0][3] - B[0][0][3],
-        B[2][1][3] - B[0][1][3],
-        B[2][2][3] - B[0][2][3],
-    ]
-    // let shiftB3: [Double] = [
-    //     B[3][0][3] - B[0][0][3],
-    //     B[3][1][3] - B[0][1][3],
-    //     B[3][2][3] - B[0][2][3]
-    // ]
-
-    // y軸の補正にx軸の三角比を利用する
-    let ySin = shiftB2[2] * -1
-    let yCos = shiftB2[0] * -1
-
-    print("ySin: \(ySin), yCos: \(yCos)")
-    let yasin = asin(ySin)
-    let yasindegree = yasin * 180 / .pi
-    print("yasin: \(yasin), yasindegree: \(yasindegree)")
-
-    // x軸の補正
-    let xSin: Double = shiftA2[1] / shiftA2[0]
-    var xCos: Double
-    // A 側の y軸が x軸基準の方が高い場合は cosはプラスになる
-    if A[0][1][3] < A[2][1][3] {
-        xCos = sqrt(1 - pow(xSin, 2))
-    } else {
-        xCos = -sqrt(1 - pow(xSin, 2))
-    }
-
-    print("xSin: \(xSin), xCos: \(xCos)")
-    let xasin = asin(xSin)
-    let xasindegree = xasin * 180 / .pi
-    print("xasin: \(xasin), xasindegree: \(xasindegree)")
-
-    let zSin: Double = shiftA3[1] / shiftA3[2]
-    var zCos: Double
-    // A 側の x軸が z軸基準の方が高い場合は cosはプラスになる
-    if A[0][0][3] < A[3][0][3] {
-        zCos = sqrt(1 - pow(zSin, 2))
-    } else {
-        zCos = -sqrt(1 - pow(zSin, 2))
-    }
-
-    print("zSin: \(zSin), zCos: \(zCos)")
-    let zasin = asin(zSin)
-    let zasindegree = zasin * 180 / .pi
-    print("zasin: \(zasin), zasindegree: \(zasindegree)")
-
-    // 回転行列を計算
-    let rotationMatrixX: [[Double]] = [
-        [1, 0, 0, 0],
-        [0, xCos, xSin, 0],
-        [0, -xSin, xCos, 0],
-        [0, 0, 0, 1],
-    ]
-    let rotationMatrixY: [[Double]] = [
-        [yCos, 0, -ySin, 0],
-        [0, 1, 0, 0],
-        [ySin, 0, yCos, 0],
-        [0, 0, 0, 1],
-    ]
-    let rotationMatrixZ: [[Double]] = [
-        [zCos, zSin, 0, 0],
-        [-zSin, zCos, 0, 0],
-        [0, 0, 1, 0],
-        [0, 0, 0, 1],
-    ]
-
-    // 回転行列を合成
-    let rotationMatrix = matrixMul4x4(
-        matrixMul4x4(matrixMul4x4(rotationMatrixX, rotationMatrixY), rotationMatrixZ), affineMatrix)
-
-    return rotationMatrix
-}
-
-func shiftRotateAffineMatrix(_ A: [[[Double]]], _ B: [[[Double]]], _ affineMatrix: [[Double]])
-    -> [[Double]]
-{
-    let tmpAffineMatrix: [[Double]] = calcRotation(A, B, affineMatrix)
-    return tmpAffineMatrix
-}
 
 /*
  let A:[[[Double]]] = [
@@ -352,18 +242,18 @@ func shiftRotateAffineMatrix(_ A: [[[Double]]], _ B: [[[Double]]], _ affineMatri
  [[1, 0, 0, 7],[0, 1, 0, 7],[0, 0, 1, 8],[0, 0, 0, 1]],
  [[1, 0, 0, 23],[0, 1, 0, 25],[0, 0, 1, 23],[0, 0, 0, 1]],
  ]
-
+ 
  let B:[[[Double]]] = [
  [[1, 0, 0, 13],[0, 1, 0, 15],[0, 0, 1, 14],[0, 0, 0, 1]],
  [[1, 0, 0, 15],[0, 1, 0, 15],[0, 0, 1, 16],[0, 0, 0, 1]],
  [[1, 0, 0, 33],[0, 1, 0, 35],[0, 0, 1, 33],[0, 0, 0, 1]],
  ]
-
+ 
  calcAffineMatrix(A, B)
  */
 func calcAffineMatrix(_ A: [[[Double]]], _ B: [[[Double]]]) -> [[Double]] {
     let n = A.count
-
+    
     var P: [[Double]] = []
     for i in (0..<n) {
         var rowP: [Double] = []
@@ -376,7 +266,7 @@ func calcAffineMatrix(_ A: [[[Double]]], _ B: [[[Double]]]) -> [[Double]] {
     if P.count == 3 {
         P.append([0, 0, 0, 0])
     }
-
+    
     var Q: [[Double]] = []
     for i in (0..<n) {
         var rowQ: [Double] = []
@@ -389,75 +279,16 @@ func calcAffineMatrix(_ A: [[[Double]]], _ B: [[[Double]]]) -> [[Double]] {
     if Q.count == 3 {
         Q.append([0, 0, 0, 0])
     }
-
-    let eqSolveMatrix: [[Double]] = matrixMul4x4(
-        eqSolve(matrixMul4x4(P.transpose4x4, P), P.transpose4x4), Q)
+    
+    let eqSolveMatrix: [[Double]] = matrixMul4x4(eqSolve(matrixMul4x4(P.transpose4x4, P), P.transpose4x4), Q)
     var affineMatrix: [[Double]] = eqSolveMatrix.transpose4x4
     affineMatrix[3][3] = 1.0
     print("default")
     print(affineMatrix)
-
+    
     affineMatrix = removeScaleAffineMatrix(affineMatrix)
     print("removeScaleAffineMatrix")
     print(affineMatrix)
-
-    //    let rotateAffineMatrix = shiftRotateAffineMatrix(A, B, affineMatrix)
-    //    print("shiftRotateAffineMatrix")
-    //    print(rotateAffineMatrix)
-    //    if !rotateAffineMatrix.isIncludeNaN {
-    //        affineMatrix = rotateAffineMatrix
-    //    }
-
+    
     return affineMatrix
-}
-
-// 逆行列を計算する関数
-func inverseMatrix(_ matrix: [[Double]]) -> [[Double]] {
-    let n = matrix.count
-    guard n == 4 else {
-        fatalError("Only 4x4 matrices are supported.")
-    }
-
-    var augmentedMatrix = matrix
-    var identityMatrix = [[Double]](repeating: [Double](repeating: 0, count: n), count: n)
-
-    // 単位行列を作成
-    for i in 0..<n {
-        identityMatrix[i][i] = 1.0
-    }
-
-    // 拡大行列を作成
-    for i in 0..<n {
-        augmentedMatrix[i].append(contentsOf: identityMatrix[i])
-    }
-
-    // ガウス・ジョルダン法で逆行列を計算
-    for i in 0..<n {
-        // 対角成分を1にする
-        let diagElement = augmentedMatrix[i][i]
-        if abs(diagElement) < 1e-8 {
-            fatalError("Matrix is singular and cannot be inverted.")
-        }
-        for j in 0..<(2 * n) {
-            augmentedMatrix[i][j] /= diagElement
-        }
-
-        // 他の行を0にする
-        for k in 0..<n {
-            if k != i {
-                let factor = augmentedMatrix[k][i]
-                for j in 0..<(2 * n) {
-                    augmentedMatrix[k][j] -= factor * augmentedMatrix[i][j]
-                }
-            }
-        }
-    }
-
-    // 逆行列を抽出
-    var inverseMatrix = [[Double]](repeating: [Double](repeating: 0, count: n), count: n)
-    for i in 0..<n {
-        inverseMatrix[i] = Array(augmentedMatrix[i][n..<(2 * n)])
-    }
-
-    return inverseMatrix
 }

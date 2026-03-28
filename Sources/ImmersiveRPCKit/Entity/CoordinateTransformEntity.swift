@@ -107,6 +107,10 @@ public class CoordinateTransforms {
     /// - Parameter param: `RequestTransform`
     /// - Returns: `RPCResult`
     func requestTransform() -> RPCResult {
+        guard session.state == .getTransformMatrixHost || session.state == .getTransformMatrixClient
+        else {
+            return .failure(RPCError("requestTransform: 不正な状態 \(session.state) で呼び出されました"))
+        }
         requestedTransform = true
         return .success(())
     }
@@ -118,6 +122,10 @@ public class CoordinateTransforms {
     }
 
     func setTransform(param: SetTransformParam) -> RPCResult {
+        guard session.state == .getTransformMatrixHost || session.state == .getTransformMatrixClient
+        else {
+            return .failure(RPCError("setTransform: 不正な状態 \(session.state) で呼び出されました"))
+        }
         if myPeerId == param.peerId {
             if myPeerId > otherPeerId {
                 session.A.append(param.matrix)
@@ -148,6 +156,10 @@ public class CoordinateTransforms {
     ///  - Parameter param: `SetATransformParam`
     ///  - Returns: `RPCResult`
     func setATransform(param: SetATransformParam) -> RPCResult {
+        guard session.state == .getTransformMatrixHost || session.state == .getTransformMatrixClient
+        else {
+            return .failure(RPCError("setATransform: 不正な状態 \(session.state) で呼び出されました"))
+        }
         session.A.append(param.A)
         return .success(())
     }
@@ -160,6 +172,10 @@ public class CoordinateTransforms {
     ///  - Parameter param: `SetBTransformParam`
     ///  - Returns: `RPCResult`
     func setBTransform(param: SetBTransformParam) -> RPCResult {
+        guard session.state == .getTransformMatrixHost || session.state == .getTransformMatrixClient
+        else {
+            return .failure(RPCError("setBTransform: 不正な状態 \(session.state) で呼び出されました"))
+        }
         session.B.append(param.B)
         return .success(())
     }
@@ -195,6 +211,10 @@ public class CoordinateTransforms {
     ///  - Parameter param: `ClacAffineMatrixParam`
     ///  - Returns: `RPCResult`
     func clacAffineMatrix() -> RPCResult {
+        guard session.state == .confirm else {
+            return .failure(
+                RPCError("clacAffineMatrix: confirm 状態でないため計算できません (current: \(session.state))"))
+        }
         let A = session.A
         let B = session.B
 
@@ -209,7 +229,7 @@ public class CoordinateTransforms {
             B: B.map { $0.floatList }
         )
         session.affineMatrixAtoB = affineMatrix.tosimd_float4x4()
-        session.affineMatrixBtoA = inverseMatrix(affineMatrix).tosimd_float4x4()
+        session.affineMatrixBtoA = affineMatrix.tosimd_float4x4().inverse
         return .success(())
     }
 
@@ -282,7 +302,7 @@ public class CoordinateTransforms {
 
         return (
             .success(()),
-            inverseMatrix(affineMatrix.doubleList).tosimd_float4x4() * fristRightFingerMatrix
+            affineMatrix.inverse * fristRightFingerMatrix
         )
     }
 }

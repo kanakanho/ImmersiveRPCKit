@@ -3,7 +3,7 @@
 //  ImmersiveRPCKit
 //
 //  結合テスト – RPCModel を介したリクエスト送受信フロー全体を検証する
-//  ImmersiveRPCKitAllTests (.serialized) の拡張として定義し直列実行を保証する
+//  各 RPCModel は per-instance MethodRegistry を持つため独立して実行できる
 //
 
 import Foundation
@@ -30,7 +30,6 @@ extension ImmersiveRPCKitAllTests {
         let remotePeer: MCPeerID
 
         init() {
-            MethodRegistry.shared.reset()
             let send = ExchangeDataWrapper()
             let receive = ExchangeDataWrapper()
             let peers = MCPeerIDUUIDWrapper()
@@ -52,7 +51,7 @@ extension ImmersiveRPCKitAllTests {
 
         // MARK: 正常フロー
 
-        @Test func receiveNormalBroadcastRequest_executesHandlerAndSendsAck() throws {
+        @Test func receiveNormalBroadcastRequest_executesHandlerAndSendsAck() async throws {
             let method = AnyRPCMethod(
                 entityKey: MockEntity.codingKey,
                 broadcastMethod: MockEntity.BroadcastMethod.ping(.init(message: "from-remote"))
@@ -66,21 +65,17 @@ extension ImmersiveRPCKitAllTests {
             #expect(mockHandler.broadcastMessages.contains("from-remote"))
 
             // ACK が sendWrapper に書き込まれている
-            #expect(!sendWrapper.exchangeData.data.isEmpty)
+            let sent = try #require(await nextValue(from: sendWrapper))
+            #expect(!sent.data.isEmpty)
             // ACK は送信元 Peer ID へ unicast
-            #expect(sendWrapper.exchangeData.mcPeerId == remotePeer.hash)
+            #expect(sent.mcPeerId == remotePeer.hash)
 
             // ACK の entityCodingKey が "ack" であることを確認
-            MethodRegistry.shared.register(
-                AcknowledgmentEntity.self,
-                handler: AcknowledgmentHandler { _ in }
-            )
-            let decoded = try JSONDecoder().decode(
-                RequestSchema.self, from: sendWrapper.exchangeData.data)
+            let decoded = try decodeSentSchema(from: sent, using: model.methodRegistry)
             #expect(decoded.method.entityCodingKey == AcknowledgmentEntity.codingKey)
         }
 
-        @Test func receiveNormalUnicastRequest_executesHandlerAndSendsAck() throws {
+        @Test func receiveNormalUnicastRequest_executesHandlerAndSendsAck() async throws {
             let method = AnyRPCMethod(
                 entityKey: MockEntity.codingKey,
                 unicastMethod: MockEntity.UnicastMethod.setValue(.init(value: 55))
@@ -90,12 +85,14 @@ extension ImmersiveRPCKitAllTests {
             let result = model.receiveRequest(schema)
             #expect(result.success)
             #expect(mockHandler.unicastValues.contains(55))
-            #expect(sendWrapper.exchangeData.mcPeerId == remotePeer.hash)
+            let sent = try #require(await nextValue(from: sendWrapper))
+            #expect(sent.mcPeerId == remotePeer.hash)
         }
 
-        @Test func ackRequestIdMatchesSchemaId() throws {
+        @Test func ackRequestIdMatchesSchemaId() async throws {
             var ackedId: UUID? = nil
-            MethodRegistry.shared.register(
+            // モデルの ACK ハンドラをテスト用に上書き
+            model.methodRegistry.updateHandler(
                 AcknowledgmentEntity.self,
                 handler: AcknowledgmentHandler { id in ackedId = id }
             )
@@ -110,15 +107,15 @@ extension ImmersiveRPCKitAllTests {
             _ = model.receiveRequest(schema)
 
             // 送信された ACK のリクエストデータを再デコードして ACK ID を取り出す
-            let decodedAck = try JSONDecoder().decode(
-                RequestSchema.self, from: sendWrapper.exchangeData.data)
-            _ = MethodRegistry.shared.execute(decodedAck.method)
+            let sentAck = try #require(await nextValue(from: sendWrapper))
+            let decodedAck = try decodeSentSchema(from: sentAck, using: model.methodRegistry)
+            _ = model.methodRegistry.execute(decodedAck.method)
             #expect(ackedId == requestId)
         }
 
         // MARK: 失敗フロー
 
-        @Test func receiveFailingRequest_sendsErrorNotAck() throws {
+        @Test func receiveFailingRequest_sendsErrorNotAck() async throws {
             let method = AnyRPCMethod(
                 entityKey: MockEntity.codingKey,
                 broadcastMethod: MockEntity.BroadcastMethod.alwaysFail(
@@ -129,22 +126,19 @@ extension ImmersiveRPCKitAllTests {
             let result = model.receiveRequest(schema)
             #expect(!result.success)
 
-            #expect(!sendWrapper.exchangeData.data.isEmpty)
-            #expect(sendWrapper.exchangeData.mcPeerId == remotePeer.hash)
+            let sent = try #require(await nextValue(from: sendWrapper))
+            #expect(!sent.data.isEmpty)
+            #expect(sent.mcPeerId == remotePeer.hash)
 
             // Error entity が送信されている
-            MethodRegistry.shared.register(
-                ErrorEntitiy.self,
-                handler: ErrorHandler { _ in }
-            )
-            let decoded = try JSONDecoder().decode(
-                RequestSchema.self, from: sendWrapper.exchangeData.data)
+            let decoded = try decodeSentSchema(from: sent, using: model.methodRegistry)
             #expect(decoded.method.entityCodingKey == ErrorEntitiy.codingKey)
         }
 
-        @Test func receiveFailingRequest_errorMessagePropagates() throws {
+        @Test func receiveFailingRequest_errorMessagePropagates() async throws {
             var receivedErrorMsg: String? = nil
-            MethodRegistry.shared.register(
+            // モデルの Error ハンドラをテスト用に上書き
+            model.methodRegistry.updateHandler(
                 ErrorEntitiy.self,
                 handler: ErrorHandler { msg in receivedErrorMsg = msg }
             )
@@ -158,20 +152,15 @@ extension ImmersiveRPCKitAllTests {
             _ = model.receiveRequest(schema)
 
             // 送信された Error を自分が受信した想定でデコード・実行
-            let decoded = try JSONDecoder().decode(
-                RequestSchema.self, from: sendWrapper.exchangeData.data)
-            _ = MethodRegistry.shared.execute(decoded.method)
+            let sentErr = try #require(await nextValue(from: sendWrapper))
+            let decoded = try decodeSentSchema(from: sentErr, using: model.methodRegistry)
+            _ = model.methodRegistry.execute(decoded.method)
             #expect(receivedErrorMsg == "propagated-error")
         }
 
         // MARK: 内部 Entity（ACK / Error）は再 ACK しない
 
-        @Test func receiveAckEntity_doesNotSendAckBack() throws {
-            MethodRegistry.shared.register(
-                AcknowledgmentEntity.self,
-                handler: AcknowledgmentHandler { _ in }
-            )
-
+        @Test func receiveAckEntity_doesNotSendAckBack() async throws {
             let ackMethod = AnyRPCMethod(
                 entityKey: AcknowledgmentEntity.codingKey,
                 unicastMethod: AcknowledgmentEntity.UnicastMethod.ack(.init(requestId: UUID()))
@@ -181,15 +170,11 @@ extension ImmersiveRPCKitAllTests {
             let result = model.receiveRequest(schema)
             #expect(result.success)
             // ACK を受け取っても sendWrapper にデータが書き込まれない（再 ACK 不要）
-            #expect(sendWrapper.exchangeData.data.isEmpty)
+            let sent = await nextValue(from: sendWrapper)
+            #expect(sent == nil)
         }
 
-        @Test func receiveErrorEntity_doesNotSendAckBack() throws {
-            MethodRegistry.shared.register(
-                ErrorEntitiy.self,
-                handler: ErrorHandler { _ in }
-            )
-
+        @Test func receiveErrorEntity_doesNotSendAckBack() async throws {
             let errorMethod = AnyRPCMethod(
                 entityKey: ErrorEntitiy.codingKey,
                 unicastMethod: ErrorEntitiy.UnicastMethod.error(
@@ -200,18 +185,15 @@ extension ImmersiveRPCKitAllTests {
             let result = model.receiveRequest(schema)
             #expect(!result.success)
             // Error を受け取っても sendWrapper にデータが書き込まれない
-            #expect(sendWrapper.exchangeData.data.isEmpty)
+            let sent = await nextValue(from: sendWrapper)
+            #expect(sent == nil)
         }
 
         // MARK: SpatialEntity を含む変換送受信フロー
 
-        @Test func sendAndReceiveSpatialEntity_matrixPreserved() throws {
+        @Test func sendAndReceiveSpatialEntity_matrixPreserved() async throws {
             let localSpatialHandler = SpatialHandler()
-            MethodRegistry.shared.register(SpatialEntity.self, handler: localSpatialHandler)
-            MethodRegistry.shared.register(
-                AcknowledgmentEntity.self,
-                handler: AcknowledgmentHandler { _ in }
-            )
+            model.methodRegistry.register(SpatialEntity.self, handler: localSpatialHandler)
 
             let matrix = simd_float4x4(pos: .init(1, 2, 3))
 
@@ -220,13 +202,13 @@ extension ImmersiveRPCKitAllTests {
             model.send(req)
 
             // ②受信側: 送信されたデータを RequestSchema にデコードして受信処理
-            let decoded = try JSONDecoder().decode(
-                RequestSchema.self, from: sendWrapper.exchangeData.data)
+            let sentData = try #require(await nextValue(from: sendWrapper))
+            let decoded = try decodeSentSchema(from: sentData, using: model.methodRegistry)
 
             let receiveResult = model.receiveRequest(decoded)
             #expect(receiveResult.success)
             #expect(!localSpatialHandler.executedMatrices.isEmpty)
-            #expect(localSpatialHandler.executedMatrices[0].floatList == matrix.floatList)
+            #expect(localSpatialHandler.executedMatrices[0] == matrix)
         }
 
         // MARK: 複数スタンバイ Peer への syncAll フロー
@@ -245,13 +227,9 @@ extension ImmersiveRPCKitAllTests {
 
         // MARK: transforming 全フロー結合テスト
 
-        @Test func transformingAutoFullFlow_localAndRemoteExecution() throws {
+        @Test func transformingAutoFullFlow_localAndRemoteExecution() async throws {
             let spatialHandler = SpatialHandler()
-            MethodRegistry.shared.register(SpatialEntity.self, handler: spatialHandler)
-            MethodRegistry.shared.register(
-                AcknowledgmentEntity.self,
-                handler: AcknowledgmentHandler { _ in }
-            )
+            model.methodRegistry.register(SpatialEntity.self, handler: spatialHandler)
 
             let localMatrix = simd_float4x4.identity
             let affine = simd_float4x4(pos: .init(10, 0, 0))
@@ -266,17 +244,17 @@ extension ImmersiveRPCKitAllTests {
             #expect(results.allSatisfy { $0.success })
 
             // ② ローカルには identity 行列で実行される
-            #expect(spatialHandler.executedMatrices[0].floatList == localMatrix.floatList)
+            #expect(spatialHandler.executedMatrices[0] == localMatrix)
 
             // ③ 送信データをデコードして "受信側" で実行
-            let decoded = try JSONDecoder().decode(
-                RequestSchema.self, from: sendWrapper.exchangeData.data)
+            let sentData = try #require(await nextValue(from: sendWrapper))
+            let decoded = try decodeSentSchema(from: sentData, using: model.methodRegistry)
             let receiveResult = model.receiveRequest(decoded)
             #expect(receiveResult.success)
 
             // ④ 受信側で適用された行列は affine * identity
             let expected = affine * localMatrix
-            #expect(spatialHandler.executedMatrices[1].floatList == expected.floatList)
+            #expect(spatialHandler.executedMatrices[1] == expected)
         }
     }
 

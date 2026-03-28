@@ -7,6 +7,17 @@
 
 import Foundation
 
+// MARK: - CodingUserInfoKey
+
+/// `JSONDecoder.userInfo` に `MethodRegistry` インスタンスを渡すためのキー。
+/// `RPCModel` は `jsonDecoder.userInfo[.methodRegistry] = methodRegistry` を設定することで
+/// シングルトンに依存せず自身のレジストリを使ってデコードする。
+extension CodingUserInfoKey {
+    static let methodRegistry = CodingUserInfoKey(
+        rawValue: "ImmersiveRPCKit.methodRegistry"
+    )!
+}
+
 // MARK: - DynamicCodingKey
 
 /// 動的な文字列で CodingKey を生成するヘルパー
@@ -31,11 +42,11 @@ private enum ScopeCodingKey: String, CodingKey {
 ///
 /// JSON 上では `{ "b": { ...payload... } }` または `{ "u": { ...payload... } }` の形式で
 /// スコープを区別してエンコードされます。
-struct AnyRPCMethod: @unchecked Sendable {
+struct AnyRPCMethod: Sendable {
     /// この Method が属する Entity の codingKey
     let entityCodingKey: String
-    private let _encode: (Encoder) throws -> Void
-    private let _execute: (Any) -> RPCResult
+    private let _encode: @Sendable (Encoder) throws -> Void
+    private let _execute: @MainActor @Sendable (Any) -> RPCResult
     
     /// BroadcastMethod コンテナを生成する
     init<M: RPCBroadcastMethod>(entityKey: String, broadcastMethod: M) {
@@ -44,7 +55,7 @@ struct AnyRPCMethod: @unchecked Sendable {
             var container = encoder.container(keyedBy: ScopeCodingKey.self)
             try container.encode(broadcastMethod, forKey: .broadcast)
         }
-        self._execute = { handler in
+        self._execute = { @MainActor handler in
             guard let typedHandler = handler as? M.Handler else {
                 return RPCResult("Handler type mismatch for entity '\(entityKey)'. Expected \(M.Handler.self).")
             }
@@ -59,7 +70,7 @@ struct AnyRPCMethod: @unchecked Sendable {
             var container = encoder.container(keyedBy: ScopeCodingKey.self)
             try container.encode(unicastMethod, forKey: .unicast)
         }
-        self._execute = { handler in
+        self._execute = { @MainActor handler in
             guard let typedHandler = handler as? M.Handler else {
                 return RPCResult("Handler type mismatch for entity '\(entityKey)'. Expected \(M.Handler.self).")
             }
@@ -67,8 +78,8 @@ struct AnyRPCMethod: @unchecked Sendable {
         }
     }
     
-    /// 型消去されたハンドラでメソッドを実行する（MainActor から呼ぶこと）
-    func execute(on handler: Any) -> RPCResult {
+    /// 型消去されたハンドラでメソッドを実行する
+    @MainActor func execute(on handler: Any) -> RPCResult {
         _execute(handler)
     }
 }
@@ -83,11 +94,12 @@ extension AnyRPCMethod: Encodable {
 
 /// Entity とハンドラの登録・管理を行うレジストリ
 ///
-/// - Warning: `MainActor` 上での使用を前提としています
-final class MethodRegistry {
-    /// 共有インスタンス（シングルトン）
-    nonisolated(unsafe) static let shared = MethodRegistry()
-    
+/// 各 `RPCModel` は専有の `MethodRegistry` インスタンスを保持します（per-instance 設計）。
+/// 複数の `RPCModel` を同一プロセスで共存させても互いに干渉しません。
+///
+/// - Note: 登録・実行操作はすべて `@MainActor` 上で行います。
+///         `decode(entityKey:from:)` は登録完了後に読み取り専用で使うため `nonisolated` です。
+final class MethodRegistry: @unchecked Sendable {
     /// codingKey → デコーダ関数
     private var decoders: [String: (Decoder) throws -> AnyRPCMethod] = [:]
     /// codingKey → ハンドラ
@@ -125,12 +137,13 @@ final class MethodRegistry {
     /// entityKey と Decoder を使って `AnyRPCMethod` をデコードする
     ///
     /// `RequestSchema.init(from:)` の内部から呼ばれます。
+    /// `decoders` は登録完了後は読み取り専用のため安全です。
     func decode(entityKey: String, from decoder: Decoder) throws -> AnyRPCMethod {
         guard let decode = decoders[entityKey] else {
             throw DecodingError.dataCorrupted(
                 DecodingError.Context(
                     codingPath: decoder.codingPath,
-                    debugDescription: "Unknown entity key '\(entityKey)'. Call MethodRegistry.shared.register(_:handler:) first."
+                    debugDescription: "Unknown entity key '\(entityKey)'. Call MethodRegistry.register(_:handler:) first."
                 )
             )
         }
@@ -139,17 +152,17 @@ final class MethodRegistry {
     
     // MARK: Execute
     
-    /// 登録されたハンドラでメソッドを実行する（MainActor 上で呼ぶこと）
-    func execute(_ method: AnyRPCMethod) -> RPCResult {
+    /// 登録されたハンドラでメソッドを実行する
+    @MainActor func execute(_ method: AnyRPCMethod) -> RPCResult {
         guard let handler = handlers[method.entityCodingKey] else {
             return RPCResult("No handler registered for entity '\(method.entityCodingKey)'.")
         }
         return method.execute(on: handler)
     }
     
-    // MARK: Testing
+    // MARK: Reset
     
-    /// 登録済みのデコーダとハンドラをすべてクリアする（テスト用）
+    /// 登録済みのデコーダとハンドラをすべてクリアする
     func reset() {
         decoders = [:]
         handlers = [:]

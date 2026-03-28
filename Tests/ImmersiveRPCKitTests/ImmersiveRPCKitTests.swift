@@ -3,7 +3,7 @@
 //  ImmersiveRPCKit
 //
 //  ユニットテスト + 結合テスト
-//  MethodRegistry.shared はシングルトンなので .serialized で直列実行する
+//  RPCModel は per-instance MethodRegistry を持つため、どのテストも独立して安全に並列実行できる。
 //
 
 import Foundation
@@ -13,12 +13,11 @@ import simd
 
 @testable import ImmersiveRPCKit
 
-/// 全テストを直列化するルートスイート
+/// ルートスイート
 ///
-/// MethodRegistry.shared はプロセスグローバルなシングルトンなので、
-/// 並列実行すると reset() が別スイートのテスト実行中に呼ばれて状態が壊れる。
-/// .serialized を付けることで全テストを 1 件ずつ順番に実行する。
-@Suite("ImmersiveRPCKit", .serialized)
+/// RPCModel は per-instance MethodRegistry を持つため、それぞれのテストスイートは完全に独立している。
+/// グローバル状態を共有しないため並列実行が安全。
+@Suite("ImmersiveRPCKit")
 struct ImmersiveRPCKitAllTests {
 
     // MARK: - RPCResult テスト
@@ -61,7 +60,7 @@ struct ImmersiveRPCKitAllTests {
 
     // MARK: - AnyRPCMethod テスト
 
-    @Suite struct AnyRPCMethodTests {
+    @Suite @MainActor struct AnyRPCMethodTests {
 
         @Test func broadcastEntityCodingKey() {
             let method = AnyRPCMethod(
@@ -147,31 +146,32 @@ struct ImmersiveRPCKitAllTests {
 
     // MARK: - MethodRegistry テスト
 
-    @Suite struct MethodRegistryTests {
-        init() { MethodRegistry.shared.reset() }
+    @Suite @MainActor struct MethodRegistryTests {
+        // Swift Testing の value-type semantics により各テストで register がクリーンなインスタンスを得る
+        let registry = MethodRegistry()
 
         @Test func registerAndExecuteBroadcast() {
             let handler = MockHandler()
-            MethodRegistry.shared.register(MockEntity.self, handler: handler)
+            registry.register(MockEntity.self, handler: handler)
 
             let method = AnyRPCMethod(
                 entityKey: MockEntity.codingKey,
                 broadcastMethod: MockEntity.BroadcastMethod.ping(.init(message: "reg-broadcast"))
             )
-            let result = MethodRegistry.shared.execute(method)
+            let result = registry.execute(method)
             #expect(result.success)
             #expect(handler.broadcastMessages.contains("reg-broadcast"))
         }
 
         @Test func registerAndExecuteUnicast() {
             let handler = MockHandler()
-            MethodRegistry.shared.register(MockEntity.self, handler: handler)
+            registry.register(MockEntity.self, handler: handler)
 
             let method = AnyRPCMethod(
                 entityKey: MockEntity.codingKey,
                 unicastMethod: MockEntity.UnicastMethod.setValue(.init(value: 99))
             )
-            let result = MethodRegistry.shared.execute(method)
+            let result = registry.execute(method)
             #expect(result.success)
             #expect(handler.unicastValues.contains(99))
         }
@@ -181,7 +181,7 @@ struct ImmersiveRPCKitAllTests {
                 entityKey: "unknown_entity_xyz",
                 broadcastMethod: MockEntity.BroadcastMethod.ping(.init(message: "x"))
             )
-            let result = MethodRegistry.shared.execute(method)
+            let result = registry.execute(method)
             #expect(!result.success)
             #expect(result.errorMessage.contains("unknown_entity_xyz"))
         }
@@ -189,34 +189,35 @@ struct ImmersiveRPCKitAllTests {
         @Test func updateHandlerReplacesHandler() {
             let h1 = MockHandler()
             let h2 = MockHandler()
-            MethodRegistry.shared.register(MockEntity.self, handler: h1)
-            MethodRegistry.shared.updateHandler(MockEntity.self, handler: h2)
+            registry.register(MockEntity.self, handler: h1)
+            registry.updateHandler(MockEntity.self, handler: h2)
 
             let method = AnyRPCMethod(
                 entityKey: MockEntity.codingKey,
                 unicastMethod: MockEntity.UnicastMethod.setValue(.init(value: 10))
             )
-            _ = MethodRegistry.shared.execute(method)
+            _ = registry.execute(method)
             #expect(h1.unicastValues.isEmpty)
             #expect(h2.unicastValues == [10])
         }
 
         @Test func resetClearsAllRegistrations() {
             let handler = MockHandler()
-            MethodRegistry.shared.register(MockEntity.self, handler: handler)
-            MethodRegistry.shared.reset()
+            registry.register(MockEntity.self, handler: handler)
+            registry.reset()
 
             let method = AnyRPCMethod(
                 entityKey: MockEntity.codingKey,
                 unicastMethod: MockEntity.UnicastMethod.setValue(.init(value: 1))
             )
-            let result = MethodRegistry.shared.execute(method)
+            let result = registry.execute(method)
             #expect(!result.success)
         }
 
         @Test func decodeRegisteredBroadcastEntity() throws {
             let handler = MockHandler()
-            MethodRegistry.shared.register(MockEntity.self, handler: handler)
+            let registry = MethodRegistry()
+            registry.register(MockEntity.self, handler: handler)
 
             let original = AnyRPCMethod(
                 entityKey: MockEntity.codingKey,
@@ -224,8 +225,10 @@ struct ImmersiveRPCKitAllTests {
             )
             let schema = RequestSchema(peerId: 0, method: original)
             let data = try JSONEncoder().encode(schema)
-            let decoded = try JSONDecoder().decode(RequestSchema.self, from: data)
-            let result = MethodRegistry.shared.execute(decoded.method)
+            let decoder = JSONDecoder()
+            decoder.userInfo[.methodRegistry] = registry
+            let decoded = try decoder.decode(RequestSchema.self, from: data)
+            let result = registry.execute(decoded.method)
             #expect(result.success)
             #expect(handler.broadcastMessages.contains("round-trip"))
         }
@@ -237,8 +240,10 @@ struct ImmersiveRPCKitAllTests {
             )
             let schema = RequestSchema(peerId: 0, method: original)
             let data = try JSONEncoder().encode(schema)
+            let decoder = JSONDecoder()
+            decoder.userInfo[.methodRegistry] = MethodRegistry()  // 空のレジストリ
             #expect(throws: (any Error).self) {
-                _ = try JSONDecoder().decode(RequestSchema.self, from: data)
+                _ = try decoder.decode(RequestSchema.self, from: data)
             }
         }
     }
@@ -268,13 +273,13 @@ struct ImmersiveRPCKitAllTests {
 
     // MARK: - AcknowledgmentEntity テスト
 
-    @Suite struct AcknowledgmentEntityTests {
-        init() { MethodRegistry.shared.reset() }
+    @Suite @MainActor struct AcknowledgmentEntityTests {
 
         @Test func encodingDecodingRoundTrip() throws {
             var receivedId: UUID? = nil
             let handler = AcknowledgmentHandler { id in receivedId = id }
-            MethodRegistry.shared.register(AcknowledgmentEntity.self, handler: handler)
+            let registry = MethodRegistry()
+            registry.register(AcknowledgmentEntity.self, handler: handler)
 
             let targetId = UUID()
             let method = AnyRPCMethod(
@@ -283,9 +288,11 @@ struct ImmersiveRPCKitAllTests {
             )
             let schema = RequestSchema(peerId: 0, method: method)
             let data = try JSONEncoder().encode(schema)
-            let decoded = try JSONDecoder().decode(RequestSchema.self, from: data)
+            let decoder = JSONDecoder()
+            decoder.userInfo[.methodRegistry] = registry
+            let decoded = try decoder.decode(RequestSchema.self, from: data)
 
-            let result = MethodRegistry.shared.execute(decoded.method)
+            let result = registry.execute(decoded.method)
             #expect(result.success)
             #expect(receivedId == targetId)
         }
@@ -294,32 +301,33 @@ struct ImmersiveRPCKitAllTests {
             let expectedId = UUID()
             var calledId: UUID? = nil
             let handler = AcknowledgmentHandler { id in calledId = id }
-            MethodRegistry.shared.register(AcknowledgmentEntity.self, handler: handler)
+            let registry = MethodRegistry()
+            registry.register(AcknowledgmentEntity.self, handler: handler)
 
             let method = AnyRPCMethod(
                 entityKey: AcknowledgmentEntity.codingKey,
                 unicastMethod: AcknowledgmentEntity.UnicastMethod.ack(.init(requestId: expectedId))
             )
-            _ = MethodRegistry.shared.execute(method)
+            _ = registry.execute(method)
             #expect(calledId == expectedId)
         }
     }
 
     // MARK: - ErrorEntitiy テスト
 
-    @Suite struct ErrorEntitiyTests {
-        init() { MethodRegistry.shared.reset() }
+    @Suite @MainActor struct ErrorEntitiyTests {
 
         @Test func executeCallsOnError() {
             var receivedMessage: String? = nil
             let handler = ErrorHandler { msg in receivedMessage = msg }
-            MethodRegistry.shared.register(ErrorEntitiy.self, handler: handler)
+            let registry = MethodRegistry()
+            registry.register(ErrorEntitiy.self, handler: handler)
 
             let method = AnyRPCMethod(
                 entityKey: ErrorEntitiy.codingKey,
                 unicastMethod: ErrorEntitiy.UnicastMethod.error(.init(errorMessage: "oops"))
             )
-            let result = MethodRegistry.shared.execute(method)
+            let result = registry.execute(method)
             #expect(!result.success)
             #expect(result.errorMessage == "oops")
             #expect(receivedMessage == "oops")
@@ -328,7 +336,8 @@ struct ImmersiveRPCKitAllTests {
         @Test func roundTripEncodeDecode() throws {
             var receivedMessage: String? = nil
             let handler = ErrorHandler { msg in receivedMessage = msg }
-            MethodRegistry.shared.register(ErrorEntitiy.self, handler: handler)
+            let registry = MethodRegistry()
+            registry.register(ErrorEntitiy.self, handler: handler)
 
             let method = AnyRPCMethod(
                 entityKey: ErrorEntitiy.codingKey,
@@ -337,19 +346,28 @@ struct ImmersiveRPCKitAllTests {
             )
             let schema = RequestSchema(peerId: 99, method: method)
             let data = try JSONEncoder().encode(schema)
-            let decoded = try JSONDecoder().decode(RequestSchema.self, from: data)
-            _ = MethodRegistry.shared.execute(decoded.method)
+            let decoder = JSONDecoder()
+            decoder.userInfo[.methodRegistry] = registry
+            let decoded = try decoder.decode(RequestSchema.self, from: data)
+            _ = registry.execute(decoded.method)
             #expect(receivedMessage == "round-trip error")
         }
     }
 
     // MARK: - RequestSchema ラウンドトリップテスト
 
-    @Suite struct RequestSchemaRoundTripTests {
+    @Suite @MainActor struct RequestSchemaRoundTripTests {
+        let registry: MethodRegistry
+        let decoder: JSONDecoder
+
         init() {
-            MethodRegistry.shared.reset()
-            MethodRegistry.shared.register(MockEntity.self, handler: MockHandler())
-            MethodRegistry.shared.register(SpatialEntity.self, handler: SpatialHandler())
+            let r = MethodRegistry()
+            r.register(MockEntity.self, handler: MockHandler())
+            r.register(SpatialEntity.self, handler: SpatialHandler())
+            let d = JSONDecoder()
+            d.userInfo[.methodRegistry] = r
+            registry = r
+            decoder = d
         }
 
         @Test func broadcastRoundTrip() throws {
@@ -359,7 +377,7 @@ struct ImmersiveRPCKitAllTests {
             )
             let schema = RequestSchema(id: UUID(), peerId: 1, method: method)
             let data = try JSONEncoder().encode(schema)
-            let decoded = try JSONDecoder().decode(RequestSchema.self, from: data)
+            let decoded = try decoder.decode(RequestSchema.self, from: data)
 
             #expect(decoded.peerId == 1)
             #expect(decoded.method.entityCodingKey == MockEntity.codingKey)
@@ -372,7 +390,7 @@ struct ImmersiveRPCKitAllTests {
             )
             let schema = RequestSchema(id: UUID(), peerId: 2, method: method)
             let data = try JSONEncoder().encode(schema)
-            let decoded = try JSONDecoder().decode(RequestSchema.self, from: data)
+            let decoded = try decoder.decode(RequestSchema.self, from: data)
 
             #expect(decoded.peerId == 2)
             #expect(decoded.method.entityCodingKey == MockEntity.codingKey)
@@ -386,7 +404,7 @@ struct ImmersiveRPCKitAllTests {
             )
             let schema = RequestSchema(id: id, peerId: 0, method: method)
             let data = try JSONEncoder().encode(schema)
-            let decoded = try JSONDecoder().decode(RequestSchema.self, from: data)
+            let decoded = try decoder.decode(RequestSchema.self, from: data)
             #expect(decoded.id == id)
         }
 
@@ -398,7 +416,7 @@ struct ImmersiveRPCKitAllTests {
             )
             let schema = RequestSchema(id: UUID(), peerId: 5, method: method)
             let data = try JSONEncoder().encode(schema)
-            let decoded = try JSONDecoder().decode(RequestSchema.self, from: data)
+            let decoded = try decoder.decode(RequestSchema.self, from: data)
             #expect(decoded.peerId == 5)
             #expect(decoded.method.entityCodingKey == SpatialEntity.codingKey)
         }
@@ -411,7 +429,7 @@ struct ImmersiveRPCKitAllTests {
             let schema = RequestSchema(id: UUID(), peerId: 0, method: method)
             let data = try JSONEncoder().encode(schema)
             #expect(throws: (any Error).self) {
-                _ = try JSONDecoder().decode(RequestSchema.self, from: data)
+                _ = try decoder.decode(RequestSchema.self, from: data)
             }
         }
     }
@@ -443,7 +461,6 @@ struct ImmersiveRPCKitAllTests {
         let model: RPCModel
 
         init() {
-            MethodRegistry.shared.reset()
             let send = ExchangeDataWrapper()
             let receive = ExchangeDataWrapper()
             let peers = MCPeerIDUUIDWrapper()
@@ -458,26 +475,27 @@ struct ImmersiveRPCKitAllTests {
             )
         }
 
-        @Test func broadcastSendSetsMcPeerIdToZero() throws {
+        @Test func broadcastSendSetsMcPeerIdToZero() async throws {
             let req = MockEntity.request(.ping(.init(message: "bcast")))
             model.send(req)
-            #expect(sendWrapper.exchangeData.mcPeerId == 0)
-            #expect(!sendWrapper.exchangeData.data.isEmpty)
+            let sent = try #require(await nextValue(from: sendWrapper))
+            #expect(sent.mcPeerId == 0)
+            #expect(!sent.data.isEmpty)
         }
 
-        @Test func unicastSendSetsMcPeerIdToTarget() throws {
+        @Test func unicastSendSetsMcPeerIdToTarget() async throws {
             let req = MockEntity.request(.setValue(.init(value: 1)), to: 777)
             model.send(req)
-            #expect(sendWrapper.exchangeData.mcPeerId == 777)
-            #expect(!sendWrapper.exchangeData.data.isEmpty)
+            let sent = try #require(await nextValue(from: sendWrapper))
+            #expect(sent.mcPeerId == 777)
+            #expect(!sent.data.isEmpty)
         }
 
-        @Test func sentDataDecodesBackToOriginalEntity() throws {
+        @Test func sentDataDecodesBackToOriginalEntity() async throws {
             let req = MockEntity.request(.ping(.init(message: "decode-back")))
             model.send(req)
-
-            let decoded = try JSONDecoder().decode(
-                RequestSchema.self, from: sendWrapper.exchangeData.data)
+            let sent = try #require(await nextValue(from: sendWrapper))
+            let decoded = try decodeSentSchema(from: sent, using: model.methodRegistry)
             #expect(decoded.method.entityCodingKey == MockEntity.codingKey)
         }
 
@@ -496,7 +514,6 @@ struct ImmersiveRPCKitAllTests {
         let model: RPCModel
 
         init() {
-            MethodRegistry.shared.reset()
             let send = ExchangeDataWrapper()
             let receive = ExchangeDataWrapper()
             let peers = MCPeerIDUUIDWrapper()
@@ -518,10 +535,11 @@ struct ImmersiveRPCKitAllTests {
             #expect(mockHandler.unicastValues == [1])
         }
 
-        @Test func localOnlyDoesNotSendData() {
+        @Test func localOnlyDoesNotSendData() async {
             let req = MockEntity.localRequest(.setValue(.init(value: 2)))
             model.run(localOnly: req)
-            #expect(sendWrapper.exchangeData.data.isEmpty)
+            let sent = await nextValue(from: sendWrapper)
+            #expect(sent == nil)
         }
 
         @Test func localOnlyUnicastExecutesHandler() {
@@ -549,7 +567,6 @@ struct ImmersiveRPCKitAllTests {
         let peer2: MCPeerID
 
         init() {
-            MethodRegistry.shared.reset()
             let send = ExchangeDataWrapper()
             let receive = ExchangeDataWrapper()
             let peers = MCPeerIDUUIDWrapper()
@@ -575,18 +592,20 @@ struct ImmersiveRPCKitAllTests {
             #expect(mockHandler.unicastValues.isEmpty)
         }
 
-        @Test func remoteOnlyInheritedUsesRequestTargetPeerId() {
+        @Test func remoteOnlyInheritedUsesRequestTargetPeerId() async throws {
             let req = MockEntity.request(.setValue(.init(value: 1)), to: peer1.hash)
             model.run(remoteOnly: req)  // .inherited
-            #expect(sendWrapper.exchangeData.mcPeerId == peer1.hash)
-            #expect(!sendWrapper.exchangeData.data.isEmpty)
+            let sent = try #require(await nextValue(from: sendWrapper))
+            #expect(sent.mcPeerId == peer1.hash)
+            #expect(!sent.data.isEmpty)
         }
 
-        @Test func remoteOnlyPeerSendsToSpecificPeer() {
+        @Test func remoteOnlyPeerSendsToSpecificPeer() async throws {
             let req = MockEntity.request(.setValue(.init(value: 1)), to: peer1.hash)
             let result = model.run(remoteOnly: req)
             #expect(result.success)
-            #expect(sendWrapper.exchangeData.mcPeerId == peer1.hash)
+            let sent = try #require(await nextValue(from: sendWrapper))
+            #expect(sent.mcPeerId == peer1.hash)
         }
 
         @Test func remoteOnlyPeersSendsToEachPeer() {
@@ -606,7 +625,6 @@ struct ImmersiveRPCKitAllTests {
         let peer1: MCPeerID
 
         init() {
-            MethodRegistry.shared.reset()
             let send = ExchangeDataWrapper()
             let receive = ExchangeDataWrapper()
             let peers = MCPeerIDUUIDWrapper()
@@ -624,27 +642,30 @@ struct ImmersiveRPCKitAllTests {
             )
         }
 
-        @Test func syncAllExecutesLocalAndSendsRemote() {
+        @Test func syncAllExecutesLocalAndSendsRemote() async throws {
             let req = MockEntity.request(.ping(.init(message: "sync")))
             let result = model.run(syncAll: req)  // RPCBroadcastRequest → RPCResult
             #expect(mockHandler.broadcastMessages == ["sync"])
             #expect(result.success)
-            #expect(!sendWrapper.exchangeData.data.isEmpty)
+            let sent = try #require(await nextValue(from: sendWrapper))
+            #expect(!sent.data.isEmpty)
         }
 
-        @Test func syncAllLocalFailureSkipsRemote() {
+        @Test func syncAllLocalFailureSkipsRemote() async {
             let req = MockEntity.request(.alwaysFail(.init(reason: "sync-fail")))
             let result = model.run(syncAll: req)  // RPCBroadcastRequest → RPCResult
             #expect(!result.success)
-            #expect(sendWrapper.exchangeData.data.isEmpty)
+            let sent = await nextValue(from: sendWrapper)
+            #expect(sent == nil)
         }
 
-        @Test func syncAllToPeer() {
+        @Test func syncAllToPeer() async throws {
             let req = MockEntity.request(.setValue(.init(value: 1)), to: peer1.hash)
             let result = model.run(syncAll: req)
             #expect(mockHandler.unicastValues == [1])
             #expect(result.success)
-            #expect(sendWrapper.exchangeData.mcPeerId == peer1.hash)
+            let sent = try #require(await nextValue(from: sendWrapper))
+            #expect(sent.mcPeerId == peer1.hash)
         }
     }
 
@@ -657,7 +678,6 @@ struct ImmersiveRPCKitAllTests {
         let peer1: MCPeerID
 
         init() {
-            MethodRegistry.shared.reset()
             let send = ExchangeDataWrapper()
             let receive = ExchangeDataWrapper()
             let peers = MCPeerIDUUIDWrapper()
@@ -683,18 +703,20 @@ struct ImmersiveRPCKitAllTests {
             #expect(mockHandler.unicastValues.contains(myHash))
         }
 
-        @Test func transformingClosureSendsToStandbyPeer() {
+        @Test func transformingClosureSendsToStandbyPeer() async throws {
             model.run(transforming: .all) { (peerId: Int) -> RPCUnicastRequest? in
                 MockEntity.request(.setValue(.init(value: peerId)), to: peerId)
             }
-            #expect(!sendWrapper.exchangeData.data.isEmpty)
-            #expect(sendWrapper.exchangeData.mcPeerId == peer1.hash)
+            let sent = try #require(await nextValue(from: sendWrapper))
+            #expect(!sent.data.isEmpty)
+            #expect(sent.mcPeerId == peer1.hash)
         }
 
-        @Test func transformingClosureNilSkipsPeer() {
+        @Test func transformingClosureNilSkipsPeer() async {
             let results = model.run(transforming: .peer(peer1.hash)) { _ in nil }
             #expect(results.isEmpty)
-            #expect(sendWrapper.exchangeData.data.isEmpty)
+            let sent = await nextValue(from: sendWrapper)
+            #expect(sent == nil)
         }
 
         @Test func transformingClosureLocalFailureStopsEarly() {
@@ -720,7 +742,6 @@ struct ImmersiveRPCKitAllTests {
         let peer1: MCPeerID
 
         init() {
-            MethodRegistry.shared.reset()
             let send = ExchangeDataWrapper()
             let receive = ExchangeDataWrapper()
             let peers = MCPeerIDUUIDWrapper()
@@ -753,7 +774,7 @@ struct ImmersiveRPCKitAllTests {
             #expect(spatialHandler.executedMatrices[0].floatList == localMatrix.floatList)
         }
 
-        @Test func transformingAutoSendsAffineAppliedMatrixToPeer() throws {
+        @Test func transformingAutoSendsAffineAppliedMatrixToPeer() async throws {
             let localMatrix = simd_float4x4.identity
             let affine = simd_float4x4(pos: .init(3, 0, 0))
 
@@ -763,30 +784,31 @@ struct ImmersiveRPCKitAllTests {
                 .move(.init(matrix: localMatrix))
             ) { _ in affine }
 
-            let decoded = try JSONDecoder().decode(
-                RequestSchema.self, from: sendWrapper.exchangeData.data)
+            let sent = try #require(await nextValue(from: sendWrapper))
+            let decoded = try decodeSentSchema(from: sent, using: model.methodRegistry)
             #expect(decoded.method.entityCodingKey == SpatialEntity.codingKey)
-            _ = MethodRegistry.shared.execute(decoded.method)
+            _ = model.methodRegistry.execute(decoded.method)
             let expected = affine * localMatrix
             // spatialHandler.executedMatrices[0] = local, [1] = decoded peer
             #expect(spatialHandler.executedMatrices.count == 2)
             #expect(spatialHandler.executedMatrices[1].floatList == expected.floatList)
         }
 
-        @Test func transformingAutoNilSkipsPeer() {
+        @Test func transformingAutoNilSkipsPeer() async {
             let results = model.run(
                 transforming: .all,
                 SpatialEntity.self,
                 .move(.init(matrix: .identity))
             ) { _ in nil }
             // peer スキップ -> 送信なし
-            #expect(sendWrapper.exchangeData.data.isEmpty)
+            let sent = await nextValue(from: sendWrapper)
+            #expect(sent == nil)
             // ローカルは実行される
             #expect(!spatialHandler.executedMatrices.isEmpty)
             _ = results
         }
 
-        @Test func transformingAutoWithProviderProperty() {
+        @Test func transformingAutoWithProviderProperty() async throws {
             let affine = simd_float4x4(pos: .init(0, 1, 0))
             model.affineMatrixProvider = { _ in affine }
 
@@ -796,7 +818,8 @@ struct ImmersiveRPCKitAllTests {
                 .move(.init(matrix: .identity))
             )
             #expect(results.allSatisfy { $0.success })
-            #expect(!sendWrapper.exchangeData.data.isEmpty)
+            let sent = try #require(await nextValue(from: sendWrapper))
+            #expect(!sent.data.isEmpty)
         }
 
         @Test func transformingAutoMissingProviderReturnsError() {

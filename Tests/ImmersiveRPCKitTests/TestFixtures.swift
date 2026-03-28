@@ -153,8 +153,36 @@ extension MethodRegistry {
 
 // MARK: - RequestSchema デコード確認ヘルパー
 
-/// 送信された ExchangeDataWrapper のデータを RequestSchema にデコードして返す
-@available(visionOS 26.0, *)
-func decodeSentSchema(from wrapper: ExchangeDataWrapper) throws -> RequestSchema {
-    try JSONDecoder().decode(RequestSchema.self, from: wrapper.exchangeData.data)
+/// ストリームから次の値を取得する（テスト用）
+///
+/// 指定タイムアウト内に値が来なければ `nil` を返す。
+/// 送信が行われなかったことを確認する「送信なし」アサーション用。
+func nextValue(
+    from wrapper: ExchangeDataWrapper,
+    timeout: Duration = .milliseconds(50)
+) async -> ExchangeData? {
+    await withTaskGroup(of: ExchangeData?.self) { group in
+        group.addTask {
+            var iterator = wrapper.stream.makeAsyncIterator()
+            return await iterator.next()
+        }
+        group.addTask {
+            try? await Task.sleep(for: timeout)
+            return nil
+        }
+        let result = await group.next()!
+        group.cancelAll()
+        return result
+    }
+}
+
+/// `ExchangeData` を `RequestSchema` にデコードして返す
+/// - Parameter data: `nextValue(from:)` で取得した `ExchangeData`
+/// - Parameter registry: RPCModel の per-instance MethodRegistry（`model.methodRegistry` を渡す）
+func decodeSentSchema(from data: ExchangeData, using registry: MethodRegistry) throws
+    -> RequestSchema
+{
+    let decoder = JSONDecoder()
+    decoder.userInfo[.methodRegistry] = registry
+    return try decoder.decode(RequestSchema.self, from: data.data)
 }

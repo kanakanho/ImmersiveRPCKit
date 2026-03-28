@@ -12,28 +12,25 @@ struct ExchangeData {
     var mcPeerId: Int
 }
 
-@available(visionOS 26.0, *)
-@Observable
-class ExchangeDataWrapper {
-    var exchangeData: ExchangeData
-    
-    init(data: Data, mcPeerId: Int) {
-        self.exchangeData = ExchangeData(data: data, mcPeerId: mcPeerId)
-    }
-    
+/// 送受信データの AsyncStream ラッパー
+final class ExchangeDataWrapper: Sendable {
+    /// 全送受信データを順序保証で配信する AsyncStream
+    let stream: AsyncStream<ExchangeData>
+    private let continuation: AsyncStream<ExchangeData>.Continuation
+
     init() {
-        self.exchangeData = ExchangeData(data: Data(), mcPeerId: 0)
+        (stream, continuation) = AsyncStream<ExchangeData>.makeStream()
     }
-    
-    init(data: Data) {
-        self.exchangeData = ExchangeData(data: data, mcPeerId: 0)
+
+    deinit {
+        continuation.finish()
     }
-    
+
     func setData(_ data: Data) {
-        self.exchangeData = ExchangeData(data: data, mcPeerId: 0)
+        continuation.yield(ExchangeData(data: data, mcPeerId: 0))
     }
-    
+
     func setData(_ data: Data, to mcPeerId: Int) {
-        self.exchangeData = ExchangeData(data: data, mcPeerId: mcPeerId)
+        continuation.yield(ExchangeData(data: data, mcPeerId: mcPeerId))
     }
 }
