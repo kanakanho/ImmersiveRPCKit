@@ -17,12 +17,12 @@ class MCPeerIDUUIDWrapper {
     var mine: MCPeerID
     /// 通信可能な id
     var standby: [MCPeerID] = []
-    
+
     init() {
         self.myId = UUID()
         self.mine = MCPeerID(displayName: myId.uuidString)
     }
-    
+
     func remove(mcPeerID: MCPeerID) {
         standby.removeAll { $0 == mcPeerID }
     }

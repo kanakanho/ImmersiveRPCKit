@@ -24,7 +24,7 @@ extension simd_double4x4 {
                 SIMD4<Double>(rows[0][3], rows[1][3], rows[2][3], rows[3][3])
             ))
     }
-    
+
     /// `simd_double4x4` を行優先 `[[Double]]` に変換する。
     fileprivate var rowMajor: [[Double]] {
         (0..<4).map { row in
@@ -38,7 +38,7 @@ func matmul(_ A: [[Double]], _ B: [[Double]]) -> [[Double]] {
     let rowsA = A.count
     let colsA = A[0].count
     let colsB = B[0].count
-    
+
     var result = Array(repeating: Array(repeating: 0.0, count: colsB), count: rowsA)
     for i in 0..<rowsA {
         for j in 0..<colsB {
@@ -58,10 +58,10 @@ func matrixMul4x4(_ A: [[Double]], _ B: [[Double]]) -> [[Double]] {
 func LU(_ A: [[Double]]) -> ([[Double]], [[Double]]) {
     var L = [[Double]](repeating: [Double](repeating: 0, count: 4), count: 4)
     var U = [[Double]](repeating: [Double](repeating: 0, count: 4), count: 4)
-    
+
     for i in 0..<4 {
         L[i][i] = 1  // 対角成分は1
-        
+
         for j in i..<4 {
             var sum: Double = 0.0
             for k in 0..<i {
@@ -69,7 +69,7 @@ func LU(_ A: [[Double]]) -> ([[Double]], [[Double]]) {
             }
             U[i][j] = A[i][j] - sum
         }
-        
+
         for j in (i + 1)..<4 {
             var sum: Double = 0.0
             for k in 0..<i {
@@ -78,7 +78,7 @@ func LU(_ A: [[Double]]) -> ([[Double]], [[Double]]) {
             L[j][i] = (A[j][i] - sum) / (U[i][i])
         }
     }
-    
+
     return (L, U)
 }
 
@@ -86,7 +86,7 @@ func eqSolve(_ A: [[Double]], _ Q: [[Double]]) -> [[Double]] {
     var (L, U) = LU(A)
     var Y = [[Double]](repeating: [Double](repeating: 0, count: 4), count: 4)
     var X = [[Double]](repeating: [Double](repeating: 0, count: 4), count: 4)
-    
+
     // 前進代入 L * Y = Q
     for i in 0..<4 {
         var dot = [Double](repeating: 0, count: 4)
@@ -95,12 +95,12 @@ func eqSolve(_ A: [[Double]], _ Q: [[Double]]) -> [[Double]] {
                 dot[k] += L[i][j] * Y[j][k]
             }
         }
-        
+
         for k in 0..<4 {
             Y[i][k] = Q[i][k] - dot[k]
         }
     }
-    
+
     // 後退代入 U * X = Y
     for i in stride(from: 3, through: 0, by: -1) {
         if abs(U[i][i]) < 1e-8 {  // 0除算防止
@@ -117,7 +117,7 @@ func eqSolve(_ A: [[Double]], _ Q: [[Double]]) -> [[Double]] {
             X[i][k] = (Y[i][k] - dot[k]) / U[i][i]
         }
     }
-    
+
     return X
 }
 
@@ -133,7 +133,7 @@ func svd(_ matrix: simd_double3x3) -> (U: simd_double3x3, S: simd_double3, V: si
     var info = Int32(0)
     var lwork = Int32(-1)
     var work = [Double](repeating: 0, count: 1)
-    
+
     var m = Int32(3)
     var n = Int32(3)
     var lda = m
@@ -141,20 +141,20 @@ func svd(_ matrix: simd_double3x3) -> (U: simd_double3x3, S: simd_double3, V: si
     var ldvt = n
     var jobu: Int8 = 65  // 'A'
     var jobvt: Int8 = 65  // 'A'
-    
+
     // Query and allocate the optimal workspace
     dgesvd_(&jobu, &jobvt, &m, &n, &a, &lda, &s, &u, &ldu, &vt, &ldvt, &work, &lwork, &info)
-    
+
     lwork = Int32(work[0])
     work = [Double](repeating: 0, count: Int(lwork))
-    
+
     // Compute SVD
     dgesvd_(&jobu, &jobvt, &m, &n, &a, &lda, &s, &u, &ldu, &vt, &ldvt, &work, &lwork, &info)
-    
+
     var U = simd_double3x3()
     var V = simd_double3x3()
     var S = simd_double3()
-    
+
     for i in 0..<3 {
         S[i] = s[i]
         for j in 0..<3 {
@@ -162,7 +162,7 @@ func svd(_ matrix: simd_double3x3) -> (U: simd_double3x3, S: simd_double3, V: si
             V[i][j] = vt[j * 3 + i]
         }
     }
-    
+
     return (U, S, V)
 }
 
@@ -191,18 +191,18 @@ func removeScaleAffineMatrix(_ matrix: [[Double]]) -> [[Double]] {
         SIMD3<Double>(matrix[0][1], matrix[1][1], matrix[2][1]),
         SIMD3<Double>(matrix[0][2], matrix[1][2], matrix[2][2])
     )
-    
+
     // 特異値分解
     let (R, _) = polar(M)
-    
+
     var newMatrix = matrix
-    
+
     for i in 0..<3 {
         for j in 0..<3 {
             newMatrix[i][j] = Double(R[i][j])
         }
     }
-    
+
     return newMatrix
 }
 
@@ -235,25 +235,24 @@ func matmul4x4_4x1(_ A: simd_float4x4, _ B: SIMD4<Float>) -> SIMD3<Float> {
     return SIMD3<Float>(result[0], result[1], result[2])
 }
 
-
 /*
  let A:[[[Double]]] = [
  [[1, 0, 0, 7],[0, 1, 0, 9],[0, 0, 1, 8],[0, 0, 0, 1]],
  [[1, 0, 0, 7],[0, 1, 0, 7],[0, 0, 1, 8],[0, 0, 0, 1]],
  [[1, 0, 0, 23],[0, 1, 0, 25],[0, 0, 1, 23],[0, 0, 0, 1]],
  ]
- 
+
  let B:[[[Double]]] = [
  [[1, 0, 0, 13],[0, 1, 0, 15],[0, 0, 1, 14],[0, 0, 0, 1]],
  [[1, 0, 0, 15],[0, 1, 0, 15],[0, 0, 1, 16],[0, 0, 0, 1]],
  [[1, 0, 0, 33],[0, 1, 0, 35],[0, 0, 1, 33],[0, 0, 0, 1]],
  ]
- 
+
  calcAffineMatrix(A, B)
  */
 func calcAffineMatrix(_ A: [[[Double]]], _ B: [[[Double]]]) -> [[Double]] {
     let n = A.count
-    
+
     var P: [[Double]] = []
     for i in (0..<n) {
         var rowP: [Double] = []
@@ -266,7 +265,7 @@ func calcAffineMatrix(_ A: [[[Double]]], _ B: [[[Double]]]) -> [[Double]] {
     if P.count == 3 {
         P.append([0, 0, 0, 0])
     }
-    
+
     var Q: [[Double]] = []
     for i in (0..<n) {
         var rowQ: [Double] = []
@@ -279,16 +278,16 @@ func calcAffineMatrix(_ A: [[[Double]]], _ B: [[[Double]]]) -> [[Double]] {
     if Q.count == 3 {
         Q.append([0, 0, 0, 0])
     }
-    
+
     let eqSolveMatrix: [[Double]] = matrixMul4x4(eqSolve(matrixMul4x4(P.transpose4x4, P), P.transpose4x4), Q)
     var affineMatrix: [[Double]] = eqSolveMatrix.transpose4x4
     affineMatrix[3][3] = 1.0
     print("default")
     print(affineMatrix)
-    
+
     affineMatrix = removeScaleAffineMatrix(affineMatrix)
     print("removeScaleAffineMatrix")
     print(affineMatrix)
-    
+
     return affineMatrix
 }

@@ -18,11 +18,11 @@ extension ModelEntity {
             collisionShape: .generateSphere(radius: 0.01),
             mass: 0.0
         )
-        
+
         entity.name = name
         entity.components.set(PhysicsBodyComponent(mode: .kinematic))
         entity.components.set(OpacityComponent(opacity: 1.0))
-        
+
         return entity
     }
 }

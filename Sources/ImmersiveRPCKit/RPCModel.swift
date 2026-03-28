@@ -23,13 +23,13 @@ struct RequestSchema: Encodable {
     let peerId: Int
     /// RPC のメソッド（型消去済み）
     let method: AnyRPCMethod
-    
+
     init(id: UUID = UUID(), peerId: Int, method: AnyRPCMethod) {
         self.id = id
         self.peerId = peerId
         self.method = method
     }
-    
+
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
@@ -42,7 +42,7 @@ struct RequestSchema: Encodable {
         let methodEncoder = methodContainer.superEncoder(forKey: entityKey)
         try method.encode(to: methodEncoder)
     }
-    
+
     private enum CodingKeys: String, CodingKey {
         case id, peerId, method
     }
@@ -110,12 +110,12 @@ public class RPCModel {
     private var receiveExchangeDataWrapper = ExchangeDataWrapper()
     /// リクエストキュー（再送管理用）
     private let requestQueue: RequestQueue
-    
+
     /// この RPCModel 専用のレジストリインスタンス。
     let methodRegistry = MethodRegistry()
-    
+
     var mcPeerIDUUIDWrapper = MCPeerIDUUIDWrapper()
-    
+
     /// `run(transforming:_:)` で使用するアフィン行列のプロバイダ
     ///
     /// Peer ID を受け取り対応するアフィン行列を返します。
@@ -126,14 +126,14 @@ public class RPCModel {
     /// }
     /// ```
     var affineMatrixProvider: ((Int) -> simd_float4x4?)?
-    
+
     private let jsonDecoder = JSONDecoder()
     private let jsonEncoder = JSONEncoder()
-    
+
     /// 受信ストリームの購読タスク
     @ObservationIgnored
     nonisolated(unsafe) private var receiveStreamTask: Task<Void, Never>?
-    
+
     /// - Parameters:
     ///   - sendExchangeDataWrapper: 送信用ラッパー
     ///   - receiveExchangeDataWrapper: 受信用ラッパー
@@ -151,19 +151,19 @@ public class RPCModel {
         self.receiveExchangeDataWrapper = receiveExchangeDataWrapper
         self.mcPeerIDUUIDWrapper = mcPeerIDUUIDWrapper
         self.requestQueue = RequestQueue(timeout: retriesTimeout, maxRetries: maxRetries)
-        
+
         jsonDecoder.userInfo[.methodRegistry] = methodRegistry
-        
+
         // リクエストキューの再送コールバックを設定
         requestQueue.onRetry = { [weak self] request in
             self?.resendRequest(request)
         }
-        
+
         // ユーザー定義 Entity を登録
         for entry in entities {
             entry._register(methodRegistry)
         }
-        
+
         // フレームワーク内部用 Entity（変更不要）
         // ACK: 受信時にリクエストキューから削除する
         let queue = requestQueue
@@ -173,7 +173,7 @@ public class RPCModel {
                 Task { @MainActor in queue.dequeue(requestId) }
             }
         )
-        
+
         // Error: 受信時にログ出力する（デフォルト動作）
         methodRegistry.register(
             ErrorEntitiy.self,
@@ -181,7 +181,7 @@ public class RPCModel {
                 print("[ImmersiveRPCKit] Remote error: \(message)")
             }
         )
-        
+
         // AsyncStream を直接購読→メッセージの欠落を防ぐ
         // Task を保持することで RPCModel の deinit 時に確実にキャンセルできる
         receiveStreamTask = Task { @MainActor [weak self] in
@@ -192,11 +192,11 @@ public class RPCModel {
             }
         }
     }
-    
+
     deinit {
         receiveStreamTask?.cancel()
     }
-    
+
     func receiveExchangeDataDidChange(_ exchangeData: ExchangeData) {
         guard let request = try? jsonDecoder.decode(RequestSchema.self, from: exchangeData.data) else {
             print("[ImmersiveRPCKit] Failed to decode request")
@@ -204,9 +204,9 @@ public class RPCModel {
         }
         _ = receiveRequest(request)
     }
-    
+
     // MARK: - run
-    
+
     // - BroadcastRequest（全員へ broadcast）
     //   - run(syncAll:)       — ローカル実行 + broadcast 送信
     // - UnicastRequest（特定 Peer へ unicast）
@@ -216,9 +216,9 @@ public class RPCModel {
     //   - run(syncAll:)       — ローカル実行 + request.targetPeerId へ unicast 送信
     //   - run(syncAll:toEach:)— ローカル実行 + 複数 Peer へ unicast 送信
     //   - run(transforming:)  — ローカル実行 + Peer ごとに変換して unicast 送信
-    
+
     // MARK: BroadcastRequest
-    
+
     /// BroadcastMethod をローカルで実行し、成功したら全 Peer へ送信する
     ///
     /// ローカル実行が失敗した場合はネットワーク送信をスキップします。
@@ -234,9 +234,9 @@ public class RPCModel {
         }
         return send(request)
     }
-    
+
     // MARK: UnicastRequest
-    
+
     /// UnicastMethod をローカルのハンドラだけ実行する（ネットワーク送信なし）
     ///
     /// `to:` は不要です。`Entity.localRequest(_:)` でリクエストを生成してください。
@@ -248,7 +248,7 @@ public class RPCModel {
     func run(localOnly request: RPCLocalRequest) -> RPCResult {
         methodRegistry.execute(request.method)
     }
-    
+
     /// UnicastMethod を自端末では実行せず、`request.targetPeerId` へのみ送信する
     ///
     /// ```swift
@@ -258,7 +258,7 @@ public class RPCModel {
     func run(remoteOnly request: RPCUnicastRequest) -> RPCResult {
         send(request)
     }
-    
+
     /// UnicastMethod を自端末では実行せず、複数 Peer へそれぞれ送信する
     ///
     /// ```swift
@@ -269,7 +269,7 @@ public class RPCModel {
     /// ```
     @discardableResult
     func run(remoteOnly request: RPCUnicastRequest, toEach target: RPCUnicastMultiTarget)
-    -> [RPCResult]
+        -> [RPCResult]
     {
         resolvedPeerIds(for: target).map { peerId in
             send(
@@ -282,7 +282,7 @@ public class RPCModel {
             )
         }
     }
-    
+
     /// UnicastMethod を自端末でも実行し、成功したら `request.targetPeerId` へ送信する
     ///
     /// ローカル実行が失敗した場合はネットワーク送信をスキップします。
@@ -298,7 +298,7 @@ public class RPCModel {
         }
         return send(request)
     }
-    
+
     /// UnicastMethod を自端末でも実行し、成功したら複数 Peer へそれぞれ送信する
     ///
     /// ローカル実行が失敗した場合はネットワーク送信をスキップします。
@@ -311,7 +311,7 @@ public class RPCModel {
     /// ```
     @discardableResult
     func run(syncAll request: RPCUnicastRequest, toEach target: RPCUnicastMultiTarget)
-    -> [RPCResult]
+        -> [RPCResult]
     {
         let localResult = methodRegistry.execute(request.method)
         if case .failure = localResult {
@@ -328,9 +328,9 @@ public class RPCModel {
             )
         }
     }
-    
+
     // MARK: transforming
-    
+
     /// 各 Peer に合わせて手動で変換した UnicastRequest を送信する（クロージャ版）
     ///
     /// 自端末（`mine.hash`）はローカル実行のみ行われ、送信はされません。
@@ -362,7 +362,7 @@ public class RPCModel {
             return send(request)
         }
     }
-    
+
     /// アフィン行列を自動適用して各 Peer に unicast 送信する（プロバイダ指定版）
     ///
     /// `E.UnicastMethod` が `RPCTransformableUnicastMethod` に準拠している必要があります。
@@ -391,7 +391,7 @@ public class RPCModel {
             return send(E.request(method.applying(affineMatrix: affine), to: peerId))
         }
     }
-    
+
     /// アフィン行列を自動適用して各 Peer に unicast 送信する（`affineMatrixProvider` 使用版）
     ///
     /// 事前に `rpcModel.affineMatrixProvider` をセットしておく必要があります。
@@ -412,9 +412,9 @@ public class RPCModel {
         }
         return run(transforming: target, entityType, method, affineMatrixFor: provider)
     }
-    
+
     // MARK: - run private helpers
-    
+
     private func resolvedPeerIds(for target: RPCUnicastMultiTarget) -> [Int] {
         switch target {
         case .all:
@@ -425,9 +425,9 @@ public class RPCModel {
             return ids
         }
     }
-    
+
     // MARK: - send
-    
+
     /// BroadcastMethod リクエストを全 Peer へブロードキャスト送信する（ローカル実行なし）
     @discardableResult
     func send(_ request: RPCBroadcastRequest) -> RPCResult {
@@ -444,7 +444,7 @@ public class RPCModel {
         sendExchangeDataWrapper.setData(requestData)
         return .success(())
     }
-    
+
     /// UnicastMethod リクエストを指定 Peer へ送信する（ローカル実行なし）
     @discardableResult
     func send(_ request: RPCUnicastRequest) -> RPCResult {
@@ -461,35 +461,35 @@ public class RPCModel {
         sendExchangeDataWrapper.setData(requestData, to: request.targetPeerId)
         return .success(())
     }
-    
+
     // MARK: - receiveRequest
-    
+
     /// 受信した RPC の実行
     /// - Parameters: request: `RequestSchema`
     /// - Returns: `RPCResult`
     func receiveRequest(_ request: RequestSchema) -> RPCResult {
         let entityKey = request.method.entityCodingKey
         let isInternal =
-        entityKey == AcknowledgmentEntity.codingKey
-        || entityKey == ErrorEntitiy.codingKey
-        
+            entityKey == AcknowledgmentEntity.codingKey
+            || entityKey == ErrorEntitiy.codingKey
+
         let rpcResult = methodRegistry.execute(request.method)
-        
+
         // 内部 Entity（ACK・Error）はここで終了（ACK 返送不要）
         if isInternal {
             return rpcResult
         }
-        
+
         if case .failure(let e) = rpcResult {
             return error(message: e.message, to: request.peerId)
         }
-        
+
         sendAcknowledgment(requestId: request.id, to: request.peerId)
         return rpcResult
     }
-    
+
     // MARK: - Helpers
-    
+
     /// エラーを特定 Peer へ送信（内部ヘルパー）
     @discardableResult
     func error(message: String, to peerId: Int) -> RPCResult {
@@ -504,7 +504,7 @@ public class RPCModel {
         sendExchangeDataWrapper.setData(requestData, to: peerId)
         return .failure(RPCError(message))
     }
-    
+
     /// Acknowledgment を特定 Peer へ送信（内部ヘルパー）
     private func sendAcknowledgment(requestId: UUID, to peerId: Int) {
         let method = AnyRPCMethod(
@@ -518,7 +518,7 @@ public class RPCModel {
         }
         sendExchangeDataWrapper.setData(requestData, to: peerId)
     }
-    
+
     /// リクエストを再送信
     private func resendRequest(_ request: RequestSchema) {
         guard let requestData = try? jsonEncoder.encode(request) else {

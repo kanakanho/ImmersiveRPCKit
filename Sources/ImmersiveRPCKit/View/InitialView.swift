@@ -10,11 +10,11 @@ import SwiftUI
 struct InitialView: View {
     private var rpcModel: RPCModel
     @State private var errorMessage = ""
-    
+
     init(rpcModel: RPCModel) {
         self.rpcModel = rpcModel
     }
-    
+
     var body: some View {
         VStack {
             Button(action: {
@@ -27,7 +27,7 @@ struct InitialView: View {
             }
         }
     }
-    
+
     private func initPeer() {
         // 次の画面に遷移
         let setStateRPCResult = rpcModel.run(localOnly: CoordinateTransformEntity.localRequest(.setState(.init(state: .selecting))))
@@ -43,7 +43,7 @@ struct InitialView: View {
     let receive = ExchangeDataWrapper()
     let peers = MCPeerIDUUIDWrapper()
     let coordinateTransforms = CoordinateTransforms()
-    
+
     InitialView(
         rpcModel: RPCModel(
             sendExchangeDataWrapper: send,

@@ -12,7 +12,7 @@ extension SIMD3 {
     // Initialize Float4 with SIMD3<Float> inputs.
     init(_ float4: SIMD4<Scalar>) {
         self.init()
-        
+
         x = float4.x
         y = float4.y
         z = float4.z
@@ -42,22 +42,22 @@ extension simd_float4x4 {
             SIMD4<Float>(matrix[3][0], matrix[3][1], matrix[3][2], matrix[3][3]),
         ])
     }
-    
+
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.unkeyedContainer()
         for row in 0..<4 {
             try container.encode([self[row, 0], self[row, 1], self[row, 2], self[row, 3]])
         }
     }
-    
+
     static var identity: simd_float4x4 {
         matrix_identity_float4x4
     }
-    
+
     var position: SIMD3<Float> {
         self.columns.3.xyz
     }
-    
+
     init(pos: SIMD3<Float>) {
         self.init([
             SIMD4<Float>(1, 0, 0, 0),
@@ -77,7 +77,7 @@ extension simd_float4x4 {
             [self.columns.3.x, self.columns.3.y, self.columns.3.z, self.columns.3.w],
         ]
     }
-    
+
     var doubleList: [[Double]] {
         return [
             [Double(self.columns.0.x), Double(self.columns.0.y), Double(self.columns.0.z), Double(self.columns.0.w)],
@@ -116,7 +116,7 @@ extension [[Double]] {
         }
         return result
     }
-    
+
     func tosimd_float4x4() -> simd_float4x4 {
         return simd_float4x4([
             SIMD4<Float>(self[0][0].toFloat(), self[0][1].toFloat(), self[0][2].toFloat(), self[0][3].toFloat()),
@@ -125,7 +125,7 @@ extension [[Double]] {
             SIMD4<Float>(self[3][0].toFloat(), self[3][1].toFloat(), self[3][2].toFloat(), self[3][3].toFloat()),
         ])
     }
-    
+
     var isIncludeNaN: Bool {
         for row in self {
             for value in row {

@@ -17,7 +17,7 @@ enum SharedCoordinateState {
 public struct TransformationMatrixPreparationView: View {
     var rpcModel: RPCModel
     var coordinateTransforms: CoordinateTransforms
-    
+
     init(
         rpcModel: RPCModel,
         coordinateTransforms: CoordinateTransforms
@@ -25,7 +25,7 @@ public struct TransformationMatrixPreparationView: View {
         self.rpcModel = rpcModel
         self.coordinateTransforms = coordinateTransforms
     }
-    
+
     public var body: some View {
         VStack {
             NavigationStack {
@@ -57,7 +57,7 @@ public struct TransformationMatrixPreparationView: View {
     let receive = ExchangeDataWrapper()
     let peers = MCPeerIDUUIDWrapper()
     let coordinateTransforms = CoordinateTransforms()
-    
+
     TransformationMatrixPreparationView(
         rpcModel: RPCModel(
             sendExchangeDataWrapper: send,

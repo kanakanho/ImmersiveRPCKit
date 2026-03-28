@@ -47,7 +47,7 @@ struct AnyRPCMethod: Sendable {
     let entityCodingKey: String
     private let _encode: @Sendable (Encoder) throws -> Void
     private let _execute: @MainActor @Sendable (Any) -> RPCResult
-    
+
     /// BroadcastMethod コンテナを生成する
     init<M: RPCBroadcastMethod>(entityKey: String, broadcastMethod: M) {
         self.entityCodingKey = entityKey
@@ -62,7 +62,7 @@ struct AnyRPCMethod: Sendable {
             return broadcastMethod.execute(on: typedHandler)
         }
     }
-    
+
     /// UnicastMethod コンテナを生成する
     init<M: RPCUnicastMethod>(entityKey: String, unicastMethod: M) {
         self.entityCodingKey = entityKey
@@ -77,7 +77,7 @@ struct AnyRPCMethod: Sendable {
             return unicastMethod.execute(on: typedHandler)
         }
     }
-    
+
     /// 型消去されたハンドラでメソッドを実行する
     @MainActor func execute(on handler: Any) -> RPCResult {
         _execute(handler)
@@ -104,11 +104,11 @@ final class MethodRegistry: @unchecked Sendable {
     private var decoders: [String: (Decoder) throws -> AnyRPCMethod] = [:]
     /// codingKey → ハンドラ
     private var handlers: [String: Any] = [:]
-    
+
     init() {}
-    
+
     // MARK: Registration
-    
+
     /// BroadcastMethod と UnicastMethod が同じハンドラ型を持つ Entity を登録する
     func register<E: RPCEntity>(_ entityType: E.Type, handler: E.BroadcastMethod.Handler)
     where E.BroadcastMethod.Handler == E.UnicastMethod.Handler {
@@ -125,15 +125,15 @@ final class MethodRegistry: @unchecked Sendable {
         }
         handlers[key] = handler
     }
-    
+
     /// 登録済み Entity のハンドラのみを更新する
     func updateHandler<E: RPCEntity>(_ entityType: E.Type, handler: E.BroadcastMethod.Handler)
     where E.BroadcastMethod.Handler == E.UnicastMethod.Handler {
         handlers[E.codingKey] = handler
     }
-    
+
     // MARK: Decode
-    
+
     /// entityKey と Decoder を使って `AnyRPCMethod` をデコードする
     ///
     /// `RequestSchema.init(from:)` の内部から呼ばれます。
@@ -149,9 +149,9 @@ final class MethodRegistry: @unchecked Sendable {
         }
         return try decode(decoder)
     }
-    
+
     // MARK: Execute
-    
+
     /// 登録されたハンドラでメソッドを実行する
     @MainActor func execute(_ method: AnyRPCMethod) -> RPCResult {
         guard let handler = handlers[method.entityCodingKey] else {
@@ -159,9 +159,9 @@ final class MethodRegistry: @unchecked Sendable {
         }
         return method.execute(on: handler)
     }
-    
+
     // MARK: Reset
-    
+
     /// 登録済みのデコーダとハンドラをすべてクリアする
     func reset() {
         decoders = [:]

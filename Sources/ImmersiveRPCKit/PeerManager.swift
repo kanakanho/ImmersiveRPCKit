@@ -15,12 +15,12 @@ class PeerManager: NSObject {
     private var sendExchangeDataWrapper: ExchangeDataWrapper
     private var receiveExchangeDataWrapper: ExchangeDataWrapper
     private var mcPeerIDUUIDWrapper: MCPeerIDUUIDWrapper
-    
+
     private let serviceType = "ImmersiveRPCKit"
     var session: MCSession
     private var advertiser: MCNearbyServiceAdvertiser
     private var browser: MCNearbyServiceBrowser
-    
+
     init(
         sendExchangeDataWrapper: ExchangeDataWrapper,
         receiveExchangeDataWrapper: ExchangeDataWrapper,
@@ -29,30 +29,32 @@ class PeerManager: NSObject {
         self.sendExchangeDataWrapper = sendExchangeDataWrapper
         self.receiveExchangeDataWrapper = receiveExchangeDataWrapper
         self.mcPeerIDUUIDWrapper = mcPeerIDUUIDWrapper
-        
+
         let peerID = mcPeerIDUUIDWrapper.mine
         session = MCSession(peer: peerID, securityIdentity: nil, encryptionPreference: .required)
         advertiser = MCNearbyServiceAdvertiser(peer: peerID, discoveryInfo: nil, serviceType: serviceType)
         browser = MCNearbyServiceBrowser(peer: peerID, serviceType: serviceType)
-        
+
         super.init()
-        
+
         session.delegate = self
         advertiser.delegate = self
         browser.delegate = self
-        
+
         Task { @MainActor in
             for await value in sendExchangeDataWrapper.stream {
                 sendExchangeDataDidChange(value)
             }
         }
     }
-    
+
     func sendExchangeDataDidChange(_ exchangeData: ExchangeData) {
         if exchangeData.mcPeerId != 0 {
-            guard let peerID = mcPeerIDUUIDWrapper.standby.first(where: {
-                $0.hash == exchangeData.mcPeerId
-            }) else {
+            guard
+                let peerID = mcPeerIDUUIDWrapper.standby.first(where: {
+                    $0.hash == exchangeData.mcPeerId
+                })
+            else {
                 print("Error: PeerID not found")
                 return
             }
@@ -61,21 +63,21 @@ class PeerManager: NSObject {
             sendRPC(exchangeData.data)
         }
     }
-    
+
     func start() {
         advertiser.startAdvertisingPeer()
         browser.startBrowsingForPeers()
     }
-    
+
     func stop() {
         advertiser.stopAdvertisingPeer()
         browser.stopBrowsingForPeers()
     }
-    
+
     func firstSendMessage() {
         sendMessageForAll("Hello")
     }
-    
+
     func sendMessageForAll(_ message: String) {
         guard !session.connectedPeers.isEmpty else {
             print("No connected peers")
@@ -88,7 +90,7 @@ class PeerManager: NSObject {
             print("Error sending message: \(error.localizedDescription)")
         }
     }
-    
+
     func sendRPC(_ data: Data) {
         do {
             try session.send(data, toPeers: mcPeerIDUUIDWrapper.standby, with: .unreliable)
@@ -96,7 +98,7 @@ class PeerManager: NSObject {
             print("Error sending message: \(error.localizedDescription)")
         }
     }
-    
+
     func sendRPC(_ data: Data, to peerID: MCPeerID) {
         do {
             try session.send(data, toPeers: [peerID], with: .unreliable)
@@ -104,7 +106,7 @@ class PeerManager: NSObject {
             print("Error sending message to \(peerID.displayName): \(error.localizedDescription)")
         }
     }
-    
+
     func sendMessage(_ message: String) {
         guard let messageData = message.data(using: .utf8) else { return }
         do {
@@ -129,24 +131,24 @@ extension PeerManager: @MainActor MCSessionDelegate {
         }
         if state == .notConnected {
             mcPeerIDUUIDWrapper.remove(mcPeerID: peerID)
-            
+
             // アドバタイズ・ブラウジングを再起動して再接続を待ち受ける
             advertiser.stopAdvertisingPeer()
             browser.stopBrowsingForPeers()
-            
+
             advertiser.delegate = self
             browser.delegate = self
             advertiser.startAdvertisingPeer()
             browser.startBrowsingForPeers()
         }
     }
-    
+
     func session(_ session: MCSession, didReceive data: Data, fromPeer peerID: MCPeerID) {
         Task { @MainActor in
             receiveExchangeDataWrapper.setData(data)
         }
     }
-    
+
     // Unused delegate methods
     func session(
         _ session: MCSession, didReceive stream: InputStream, withName streamName: String,
@@ -172,7 +174,7 @@ extension PeerManager: @MainActor MCNearbyServiceAdvertiserDelegate {
     ) {
         invitationHandler(true, session)
     }
-    
+
     func advertiser(
         _ advertiser: MCNearbyServiceAdvertiser, didNotStartAdvertisingPeer error: Error
     ) {
@@ -188,7 +190,7 @@ extension PeerManager: @MainActor MCNearbyServiceBrowserDelegate {
         withDiscoveryInfo info: [String: String]?
     ) {
         print("Found peer: \(peerID.displayName)")
-        
+
         // すでに接続済みのピアは招待しない
         let alreadyConnected = session.connectedPeers.contains(where: {
             $0.displayName == peerID.displayName
@@ -197,7 +199,7 @@ extension PeerManager: @MainActor MCNearbyServiceBrowserDelegate {
             print("Peer \(peerID.displayName) is already connected. Skipping invite.")
             return
         }
-        
+
         // 相互招待を防ぐため、自分のUUIDが相手より辞書順で大きい場合のみ招待する
         // これにより、3台以上でもどちらか一方のみが招待を送る
         let myName = session.myPeerID.displayName
@@ -205,10 +207,10 @@ extension PeerManager: @MainActor MCNearbyServiceBrowserDelegate {
             print("Peer \(peerID.displayName) will invite us (their UUID is larger). Waiting.")
             return
         }
-        
+
         browser.invitePeer(peerID, to: session, withContext: nil, timeout: 10)
     }
-    
+
     func browser(_ browser: MCNearbyServiceBrowser, lostPeer peerID: MCPeerID) {
         print("Lost peer: \(peerID.displayName)")
     }

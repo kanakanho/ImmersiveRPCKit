@@ -11,11 +11,11 @@ struct SelectingPeerView: View {
     private var rpcModel: RPCModel
     @State var peerIDHash: Int!
     @State private var errorMessage: String = ""
-    
+
     init(rpcModel: RPCModel) {
         self.rpcModel = rpcModel
     }
-    
+
     var body: some View {
         VStack {
             Text("2. 近くにいる人を選択").font(.title)
@@ -29,24 +29,24 @@ struct SelectingPeerView: View {
             Spacer()
             Button(action: {
                 confirmSelectClient()
-            }){
+            }) {
                 Text("選択した相手を確定")
             }
-            
+
             Spacer()
-            
+
             if !errorMessage.isEmpty {
                 Text(errorMessage).foregroundColor(.red)
             }
             Button(action: {
                 returnToInitial()
-            }){
+            }) {
                 Text("設定をやめる")
             }
         }
     }
-    
-    private func confirmSelectClient(){
+
+    private func confirmSelectClient() {
         if peerIDHash != nil {
             // 通信相手の peerId の登録
             let initPeerRPCResult = rpcModel.run(localOnly: CoordinateTransformEntity.localRequest(.initOtherPeer(.init(peerId: peerIDHash))))
@@ -54,7 +54,7 @@ struct SelectingPeerView: View {
                 errorMessage = e.message
                 return
             }
-            
+
             // hash値が大きい方をホストとする
             let nextState: CoordinateTransforms.CoordinateSession.PreparationState = rpcModel.mcPeerIDUUIDWrapper.mine.hash > peerIDHash ? .getTransformMatrixClient : .getTransformMatrixHost
             // 次の画面に遷移する
@@ -64,7 +64,7 @@ struct SelectingPeerView: View {
             }
         }
     }
-    
+
     private func returnToInitial() {
         _ = rpcModel.run(localOnly: CoordinateTransformEntity.localRequest(.resetPeer))
     }
@@ -75,7 +75,7 @@ struct SelectingPeerView: View {
     let receive = ExchangeDataWrapper()
     let peers = MCPeerIDUUIDWrapper()
     let coordinateTransforms = CoordinateTransforms()
-    
+
     SelectingPeerView(
         rpcModel: RPCModel(
             sendExchangeDataWrapper: send,

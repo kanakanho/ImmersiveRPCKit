@@ -12,35 +12,35 @@ import SwiftUI
 struct TransformationMatrixPreparationImmersiveView: View {
     @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
     @Environment(\.openWindow) private var openWindow: OpenWindowAction
-    
+
     private var rpcModel: RPCModel
     private var coordinateTransforms: CoordinateTransforms
-    
+
     private let rootEntity = Entity()
-    
+
     private let rightFingerEntity: ModelEntity = .generateSphere(name: "R", color: SimpleMaterial.Color.white)
     private let indexFingerTipGuideBall: ModelEntity = .generateSphere(name: "indexFingerTipGuideBall", color: UIColor(red: 0.0, green: 1.0, blue: 0.0, alpha: 0.4), radius: 0.02)
-    
+
     init(rpcModel: RPCModel, coordinateTransforms: CoordinateTransforms) {
         self.rpcModel = rpcModel
         self.coordinateTransforms = coordinateTransforms
     }
-    
+
     private var isActive: Bool {
         coordinateTransforms.session.state != .initial
     }
-    
+
     var body: some View {
         RealityView { content in
             rootEntity.isEnabled = isActive
-            
+
             let session = SpatialTrackingSession()
             let configuration = SpatialTrackingSession.Configuration(tracking: [.hand])
             let unapprovedCapabilities = await session.run(configuration)
             if let unapprovedCapabilities, unapprovedCapabilities.anchor.contains(.hand) {
                 print("User has rejected hand data for your app.")
             } else {
-                let indexFingerTipAnchor = AnchorEntity(.hand(AnchoringComponent.Target.Chirality.right, location: .indexFingerTip),trackingMode: .predicted)
+                let indexFingerTipAnchor = AnchorEntity(.hand(AnchoringComponent.Target.Chirality.right, location: .indexFingerTip), trackingMode: .predicted)
                 indexFingerTipAnchor.addChild(rightFingerEntity)
                 rootEntity.addChild(indexFingerTipAnchor)
             }
@@ -80,7 +80,7 @@ struct TransformationMatrixPreparationImmersiveView: View {
             if coordinateTransforms.matrixCount == 0 {
                 return
             }
-            
+
             guard let nextPos: SIMD3<Float> = coordinateTransforms.getNextIndexFingerTipPosition()
             else {
                 print("No next index finger tip position available.")
@@ -93,7 +93,7 @@ struct TransformationMatrixPreparationImmersiveView: View {
             rpcModel.affineMatrixProvider = { peerId in newMatrixs[peerId] }
         }
     }
-    
+
     private func fingerSignal(flag: Bool) {
         if flag {
             let goldColor = UIColor(red: 255 / 255, green: 215 / 255, blue: 0 / 255, alpha: 1.0)
@@ -105,12 +105,12 @@ struct TransformationMatrixPreparationImmersiveView: View {
             self.rightFingerEntity.model?.materials = [material]
         }
     }
-    
+
     private func enableIndexFingerTipGuideBall(position: SIMD3<Float>) {
         indexFingerTipGuideBall.setPosition(position, relativeTo: nil)
         indexFingerTipGuideBall.isEnabled = true
     }
-    
+
     private func disableIndexFingerTipGuideBall() {
         indexFingerTipGuideBall.isEnabled = false
     }
@@ -121,7 +121,7 @@ struct TransformationMatrixPreparationImmersiveView: View {
     let receive = ExchangeDataWrapper()
     let peers = MCPeerIDUUIDWrapper()
     let coordinateTransforms = CoordinateTransforms()
-    
+
     TransformationMatrixPreparationImmersiveView(
         rpcModel: RPCModel(
             sendExchangeDataWrapper: send,
