@@ -18,7 +18,7 @@ public struct TransformationMatrixPreparationView: View {
     var rpcModel: RPCModel
     var coordinateTransforms: CoordinateTransforms
 
-    init(
+    public init(
         rpcModel: RPCModel,
         coordinateTransforms: CoordinateTransforms
     ) {
