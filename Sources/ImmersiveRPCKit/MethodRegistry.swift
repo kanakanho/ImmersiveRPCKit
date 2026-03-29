@@ -99,7 +99,7 @@ extension AnyRPCMethod: Encodable {
 ///
 /// - Note: 登録・実行操作はすべて `@MainActor` 上で行います。
 ///         `decode(entityKey:from:)` は登録完了後に読み取り専用で使うため `nonisolated` です。
-final class MethodRegistry: @unchecked Sendable {
+public final class MethodRegistry: @unchecked Sendable {
     /// codingKey → デコーダ関数
     private var decoders: [String: (Decoder) throws -> AnyRPCMethod] = [:]
     /// codingKey → ハンドラ

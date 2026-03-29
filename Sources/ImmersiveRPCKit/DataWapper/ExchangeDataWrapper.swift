@@ -7,18 +7,18 @@
 
 import Foundation
 
-struct ExchangeData {
-    var data: Data
-    var mcPeerId: Int
+public struct ExchangeData: Sendable {
+    public var data: Data
+    public var mcPeerId: Int
 }
 
 /// 送受信データの AsyncStream ラッパー
-final class ExchangeDataWrapper: Sendable {
+public final class ExchangeDataWrapper: Sendable {
     /// 全送受信データを順序保証で配信する AsyncStream
-    let stream: AsyncStream<ExchangeData>
+    public let stream: AsyncStream<ExchangeData>
     private let continuation: AsyncStream<ExchangeData>.Continuation
 
-    init() {
+    public init() {
         (stream, continuation) = AsyncStream<ExchangeData>.makeStream()
     }
 
@@ -26,11 +26,11 @@ final class ExchangeDataWrapper: Sendable {
         continuation.finish()
     }
 
-    func setData(_ data: Data) {
+    public func setData(_ data: Data) {
         continuation.yield(ExchangeData(data: data, mcPeerId: 0))
     }
 
-    func setData(_ data: Data, to mcPeerId: Int) {
+    public func setData(_ data: Data, to mcPeerId: Int) {
         continuation.yield(ExchangeData(data: data, mcPeerId: mcPeerId))
     }
 }

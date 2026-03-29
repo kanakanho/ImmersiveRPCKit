@@ -15,7 +15,7 @@ import simd
 /// `RPCRequest(_:)` に渡すと送信先指定なしで全 Peer へ送られます。
 /// 片方のスコープのみ持つ Entity では `typealias BroadcastMethod = Never` とします。
 /// `Sendable` は `AnyRPCMethod` の `@Sendable` クロージャキャプチャのために必要です。
-protocol RPCBroadcastMethod: Codable, Sendable {
+public protocol RPCBroadcastMethod: Codable, Sendable {
     /// このメソッドを実行するハンドラの型
     associatedtype Handler
     /// ハンドラでメソッドを実行し、結果を返す
@@ -25,7 +25,7 @@ protocol RPCBroadcastMethod: Codable, Sendable {
 }
 
 extension RPCBroadcastMethod {
-    var allowRetry: Bool { true }
+    public var allowRetry: Bool { true }
 }
 
 // MARK: - RPCUnicastMethod
@@ -35,7 +35,7 @@ extension RPCBroadcastMethod {
 /// `RPCRequest(_:to:)` に渡すと指定した Peer ID へのみ送られます。
 /// 片方のスコープのみ持つ Entity では `typealias UnicastMethod = Never` とします。
 /// `Sendable` は `AnyRPCMethod` の `@Sendable` クロージャキャプチャのために必要です。
-protocol RPCUnicastMethod: Codable, Sendable {
+public protocol RPCUnicastMethod: Codable, Sendable {
     /// このメソッドを実行するハンドラの型
     associatedtype Handler
     /// ハンドラでメソッドを実行し、結果を返す
@@ -45,7 +45,7 @@ protocol RPCUnicastMethod: Codable, Sendable {
 }
 
 extension RPCUnicastMethod {
-    var allowRetry: Bool { true }
+    public var allowRetry: Bool { true }
 }
 
 // MARK: - NoMethod placeholder
@@ -55,10 +55,10 @@ extension RPCUnicastMethod {
 /// ケースなしの uninhabited enum なので、インスタンスを生成できません。
 /// `typealias BroadcastMethod = NoMethod<MyHandler>` のようにして使います。
 /// `@unchecked Sendable`: ケースがなくインスタンス不存在のため送信されることはなく安全。
-enum NoMethod<H>: RPCBroadcastMethod, RPCUnicastMethod {
-    typealias Handler = H
+public enum NoMethod<H>: RPCBroadcastMethod, RPCUnicastMethod {
+    public typealias Handler = H
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         throw DecodingError.dataCorrupted(
             .init(
                 codingPath: decoder.codingPath,
@@ -67,15 +67,15 @@ enum NoMethod<H>: RPCBroadcastMethod, RPCUnicastMethod {
         )
     }
 
-    func encode(to encoder: Encoder) throws { /* uninhabited */  }
+    public func encode(to encoder: Encoder) throws { /* uninhabited */  }
 
-    func execute(on handler: H) -> RPCResult {
+    public func execute(on handler: H) -> RPCResult {
         // 到達不能コード: NoMethod はインスタンス化できないため呼ばれることはない
         .failure(RPCError("NoMethod should never be executed."))
     }
 
     /// 明示的に宣言して 2 つのプロトコルの拡張間の曖昧さを回避
-    var allowRetry: Bool { true }
+    public var allowRetry: Bool { true }
 }
 
 // NoMethod はケースなし（uninhabited）のため @unchecked Sendable は安全
@@ -90,7 +90,7 @@ extension NoMethod: @unchecked Sendable {}
 /// 2. `BroadcastMethod` / `UnicastMethod` の enum を実装する
 ///    （片方のみなら `typealias BroadcastMethod = Never` などとする）
 /// 3. `RPCEntityRegistration<E>(handler:)` で登録エントリを作り `RPCModel.init(entities:)` に渡す
-protocol RPCEntity {
+public protocol RPCEntity {
     /// 全 Peer へブロードキャストするメソッド群（不要なら `NoMethod<HandlerType>`）
     associatedtype BroadcastMethod: RPCBroadcastMethod
     /// 特定 Peer へユニキャストするメソッド群（不要なら `NoMethod<HandlerType>`）
@@ -101,9 +101,13 @@ protocol RPCEntity {
 
 // MARK: - RPCEntityRegistrable
 
-/// 型パラメータを消去した登録エントリの基本プロトコル
-protocol RPCEntityRegistrable {
-    var _register: (MethodRegistry) -> Void { get }
+/// 型パラメータを消去した登録エントリのプロトコル
+///
+/// - Important: 外部から直接準拠しないでください。`RPCEntityRegistration<E>` を使用してください。
+///   `_register(into:)` の引数 `MethodRegistry` は外部からインスタンス化できません。
+public protocol RPCEntityRegistrable {
+    /// - Note: このメソッドはライブラリ内部でのみ呼び出されます。
+    func _register(into registry: MethodRegistry)
 }
 
 // MARK: - RPCEntityRegistration
@@ -118,12 +122,16 @@ protocol RPCEntityRegistrable {
 /// let coordinateTransforms = CoordinateTransforms()
 /// let entry = RPCEntityRegistration<CoordinateTransformEntity>(handler: coordinateTransforms)
 /// ```
-struct RPCEntityRegistration<E: RPCEntity>: RPCEntityRegistrable
+public struct RPCEntityRegistration<E: RPCEntity>: RPCEntityRegistrable
 where E.BroadcastMethod.Handler == E.UnicastMethod.Handler {
-    let _register: (MethodRegistry) -> Void
+    private let _registerImpl: (MethodRegistry) -> Void
 
-    init(_ entityType: E.Type = E.self, handler: E.BroadcastMethod.Handler) {
-        _register = { registry in
+    public func _register(into registry: MethodRegistry) {
+        _registerImpl(registry)
+    }
+
+    public init(_ entityType: E.Type = E.self, handler: E.BroadcastMethod.Handler) {
+        _registerImpl = { registry in
             registry.register(E.self, handler: handler)
         }
     }
@@ -136,7 +144,7 @@ where E.BroadcastMethod.Handler == E.UnicastMethod.Handler {
 /// 直接生成せず、`RPCEntity.request(_:)` を使ってください。
 /// このリクエストは `run(remoteOnly:)` / `run(syncAll:)` にのみ渡せます。
 /// `run(localOnly:)` や特定 Peer への送信には使用できません。
-struct RPCBroadcastRequest {
+public struct RPCBroadcastRequest {
     /// この Method が属する Entity の codingKey
     let entityCodingKey: String
     /// 型消去済みメソッド（エンコード・実行用）
@@ -152,7 +160,7 @@ struct RPCBroadcastRequest {
 /// 直接生成せず、`RPCEntity.localRequest(_:)` を使ってください。
 /// このリクエストは `run(localOnly:)` にのみ渡せます。
 /// ネットワーク送信には使用できません。
-struct RPCLocalRequest {
+public struct RPCLocalRequest {
     /// この Method が属する Entity の codingKey
     let entityCodingKey: String
     /// 型消去済みメソッド（実行用）
@@ -167,7 +175,7 @@ struct RPCLocalRequest {
 ///
 /// 直接生成せず、`RPCEntity.request(_:to:)` を使ってください。
 /// このリクエストは `run(remoteOnly:to:)` / `run(syncAll:to:)` に渡せます。
-struct RPCUnicastRequest {
+public struct RPCUnicastRequest {
     /// この Method が属する Entity の codingKey
     let entityCodingKey: String
     /// 型消去済みメソッド（エンコード・実行用）
@@ -189,7 +197,7 @@ extension RPCEntity {
     /// ```swift
     /// rpcModel.run(syncAll: ChatEntity.request(.sendMessage(.init(text: "hello"))))
     /// ```
-    static func request(_ method: BroadcastMethod) -> RPCBroadcastRequest {
+    public static func request(_ method: BroadcastMethod) -> RPCBroadcastRequest {
         RPCBroadcastRequest(
             entityCodingKey: codingKey,
             method: AnyRPCMethod(entityKey: codingKey, broadcastMethod: method),
@@ -205,7 +213,7 @@ extension RPCEntity {
     /// ```swift
     /// rpcModel.run(localOnly: ChatEntity.localRequest(.directMessage(.init(text: "hi", fromPeerId: myId))))
     /// ```
-    static func localRequest(_ method: UnicastMethod) -> RPCLocalRequest {
+    public static func localRequest(_ method: UnicastMethod) -> RPCLocalRequest {
         RPCLocalRequest(
             entityCodingKey: codingKey,
             method: AnyRPCMethod(entityKey: codingKey, unicastMethod: method),
@@ -220,7 +228,7 @@ extension RPCEntity {
     /// ```swift
     /// rpcModel.run(remoteOnly: ChatEntity.request(.directMessage(.init(text: "hi")), to: peerId))
     /// ```
-    static func request(_ method: UnicastMethod, to targetPeerId: Int) -> RPCUnicastRequest {
+    public static func request(_ method: UnicastMethod, to targetPeerId: Int) -> RPCUnicastRequest {
         RPCUnicastRequest(
             entityCodingKey: codingKey,
             method: AnyRPCMethod(entityKey: codingKey, unicastMethod: method),
@@ -236,7 +244,7 @@ extension RPCEntity {
 /// 複数 Peer 送信先を指定するための型
 ///
 /// 1 Peer への送信は `run(remoteOnly:)` / `run(remoteOnly:to:)` を使ってください。
-enum RPCUnicastMultiTarget: Sendable {
+public enum RPCUnicastMultiTarget: Sendable {
     /// `mcPeerIDUUIDWrapper.standby` の全 Peer へそれぞれ unicast
     case all
     /// 特定の 1 Peer へ unicast（`transforming` での絞り込み等に使用）
@@ -268,7 +276,7 @@ enum RPCUnicastMultiTarget: Sendable {
 ///     }
 /// }
 /// ```
-protocol RPCTransformableUnicastMethod: RPCUnicastMethod {
+public protocol RPCTransformableUnicastMethod: RPCUnicastMethod {
     /// アフィン行列を適用した変換済みメソッドを返す（pure function）
     func applying(affineMatrix: simd_float4x4) -> Self
 }

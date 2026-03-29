@@ -114,7 +114,7 @@ public class RPCModel {
     /// この RPCModel 専用のレジストリインスタンス。
     let methodRegistry = MethodRegistry()
 
-    var mcPeerIDUUIDWrapper = MCPeerIDUUIDWrapper()
+    public var mcPeerIDUUIDWrapper = MCPeerIDUUIDWrapper()
 
     /// `run(transforming:_:)` で使用するアフィン行列のプロバイダ
     ///
@@ -125,7 +125,7 @@ public class RPCModel {
     ///     coordinateTransforms.affineMatrixs[peerId]
     /// }
     /// ```
-    var affineMatrixProvider: ((Int) -> simd_float4x4?)?
+    public var affineMatrixProvider: ((Int) -> simd_float4x4?)?
 
     private let jsonDecoder = JSONDecoder()
     private let jsonEncoder = JSONEncoder()
@@ -139,7 +139,7 @@ public class RPCModel {
     ///   - receiveExchangeDataWrapper: 受信用ラッパー
     ///   - mcPeerIDUUIDWrapper: Peer ID 管理ラッパー
     ///   - entities: 利用する Entity の登録エントリ（`RPCEntityRegistration<E>(handler:)` で生成）
-    init(
+    public init(
         sendExchangeDataWrapper: ExchangeDataWrapper,
         receiveExchangeDataWrapper: ExchangeDataWrapper,
         mcPeerIDUUIDWrapper: MCPeerIDUUIDWrapper,
@@ -161,7 +161,7 @@ public class RPCModel {
 
         // ユーザー定義 Entity を登録
         for entry in entities {
-            entry._register(methodRegistry)
+            entry._register(into: methodRegistry)
         }
 
         // フレームワーク内部用 Entity（変更不要）
@@ -227,7 +227,7 @@ public class RPCModel {
     /// rpcModel.run(syncAll: ChatEntity.request(.sendMessage(.init(text: "hello"))))
     /// ```
     @discardableResult
-    func run(syncAll request: RPCBroadcastRequest) -> RPCResult {
+    public func run(syncAll request: RPCBroadcastRequest) -> RPCResult {
         let localResult = methodRegistry.execute(request.method)
         if case .failure = localResult {
             return localResult
@@ -245,7 +245,7 @@ public class RPCModel {
     /// rpcModel.run(localOnly: ChatEntity.localRequest(.directMessage(.init(text: "hi", fromPeerId: myId))))
     /// ```
     @discardableResult
-    func run(localOnly request: RPCLocalRequest) -> RPCResult {
+    public func run(localOnly request: RPCLocalRequest) -> RPCResult {
         methodRegistry.execute(request.method)
     }
 
@@ -255,7 +255,7 @@ public class RPCModel {
     /// rpcModel.run(remoteOnly: ChatEntity.request(.directMessage(.init(text: "hi")), to: peerId))
     /// ```
     @discardableResult
-    func run(remoteOnly request: RPCUnicastRequest) -> RPCResult {
+    public func run(remoteOnly request: RPCUnicastRequest) -> RPCResult {
         send(request)
     }
 
@@ -268,7 +268,7 @@ public class RPCModel {
     /// )
     /// ```
     @discardableResult
-    func run(remoteOnly request: RPCUnicastRequest, toEach target: RPCUnicastMultiTarget)
+    public func run(remoteOnly request: RPCUnicastRequest, toEach target: RPCUnicastMultiTarget)
         -> [RPCResult]
     {
         resolvedPeerIds(for: target).map { peerId in
@@ -291,7 +291,7 @@ public class RPCModel {
     /// rpcModel.run(syncAll: ChatEntity.request(.directMessage(.init(text: "hi")), to: peerId))
     /// ```
     @discardableResult
-    func run(syncAll request: RPCUnicastRequest) -> RPCResult {
+    public func run(syncAll request: RPCUnicastRequest) -> RPCResult {
         let localResult = methodRegistry.execute(request.method)
         if case .failure = localResult {
             return localResult
@@ -310,9 +310,7 @@ public class RPCModel {
     /// )
     /// ```
     @discardableResult
-    func run(syncAll request: RPCUnicastRequest, toEach target: RPCUnicastMultiTarget)
-        -> [RPCResult]
-    {
+    public func run(syncAll request: RPCUnicastRequest, toEach target: RPCUnicastMultiTarget) -> [RPCResult] {
         let localResult = methodRegistry.execute(request.method)
         if case .failure = localResult {
             return [localResult]
@@ -346,7 +344,7 @@ public class RPCModel {
     /// }
     /// ```
     @discardableResult
-    func run(
+    public func run(
         transforming target: RPCUnicastMultiTarget = .all,
         requestFor: (Int) -> RPCUnicastRequest?
     ) -> [RPCResult] {
@@ -374,7 +372,7 @@ public class RPCModel {
     /// }
     /// ```
     @discardableResult
-    func run<E: RPCEntity>(
+    public func run<E: RPCEntity>(
         transforming target: RPCUnicastMultiTarget = .all,
         _ entityType: E.Type,
         _ method: E.UnicastMethod,
@@ -402,7 +400,7 @@ public class RPCModel {
     /// rpcModel.run(transforming: .all, ObjectEntity.self, .move(.init(matrix: m)))
     /// ```
     @discardableResult
-    func run<E: RPCEntity>(
+    public func run<E: RPCEntity>(
         transforming target: RPCUnicastMultiTarget = .all,
         _ entityType: E.Type,
         _ method: E.UnicastMethod

@@ -12,19 +12,19 @@ import simd
 @available(visionOS 26.0, *)
 @Observable
 public class CoordinateTransforms {
-    struct CoordinateSession {
+    public struct CoordinateSession {
         /// 座標変換行列のリスト
-        var A: [simd_float4x4]
+        public var A: [simd_float4x4]
         /// 座標変換行列のリスト
-        var B: [simd_float4x4]
+        public var B: [simd_float4x4]
         /// 座標変換行列の状態
-        var state: PreparationState
+        public var state: PreparationState
         /// A側の座標変換行列からB側の座標変換行列へのアフィン行列
-        var affineMatrixAtoB: simd_float4x4
+        public var affineMatrixAtoB: simd_float4x4
         /// B側の座標変換行列からA側の座標変換行列へのアフィン行列
-        var affineMatrixBtoA: simd_float4x4
+        public var affineMatrixBtoA: simd_float4x4
 
-        enum PreparationState: Codable {
+        public enum PreparationState: Codable, Sendable {
             case initial
             case selecting
             case getTransformMatrixHost
@@ -33,7 +33,7 @@ public class CoordinateTransforms {
             case prepared
         }
 
-        init(state: PreparationState = .initial) {
+        public init(state: PreparationState = .initial) {
             self.A = []
             self.B = []
             self.state = state
@@ -42,7 +42,7 @@ public class CoordinateTransforms {
         }
     }
 
-    var session: CoordinateSession = .init()
+    public var session: CoordinateSession = .init()
     /// 座標の交換を管理するフラグ
     var requestedTransform: Bool = false
     ///  座標を交換する回数
@@ -57,15 +57,18 @@ public class CoordinateTransforms {
     var matrixCountLimit: Int = 4
 
     /// 交換元の id
-    var myPeerId: Int = 0
+    public var myPeerId: Int = 0
     /// 交換先の id
-    var otherPeerId: Int = 0
+    public var otherPeerId: Int = 0
     /// 計算が完了したアフィン行列
-    var affineMatrixs: [Int: simd_float4x4] = [:]
+    public var affineMatrixs: [Int: simd_float4x4] = [:]
 
-    struct InitMyPeerParam: Codable {
+    public init() {}
+
+    public struct InitMyPeerParam: Codable, Sendable {
         /// アクセス元の peerIdHash
-        let peerId: Int
+        public let peerId: Int
+        public init(peerId: Int) { self.peerId = peerId }
     }
     ///  初期化
     ///  座標交換の工程の1つ目
@@ -78,9 +81,10 @@ public class CoordinateTransforms {
         return .success(())
     }
 
-    struct InitOtherPeerParam: Codable {
+    public struct InitOtherPeerParam: Codable, Sendable {
         /// アクセス先の peerIdHash
-        let peerId: Int
+        public let peerId: Int
+        public init(peerId: Int) { self.peerId = peerId }
     }
 
     /// 相手の PeerId を登録
@@ -115,10 +119,14 @@ public class CoordinateTransforms {
         return .success(())
     }
 
-    struct SetTransformParam: Codable {
+    public struct SetTransformParam: Codable, Sendable {
         /// リクエスト元の peerIdHash
-        let peerId: Int
-        let matrix: simd_float4x4
+        public let peerId: Int
+        public let matrix: simd_float4x4
+        public init(peerId: Int, matrix: simd_float4x4) {
+            self.peerId = peerId
+            self.matrix = matrix
+        }
     }
 
     func setTransform(param: SetTransformParam) -> RPCResult {
@@ -148,8 +156,9 @@ public class CoordinateTransforms {
         return .success(())
     }
 
-    struct SetATransformParam: Codable {
-        let A: simd_float4x4
+    public struct SetATransformParam: Codable, Sendable {
+        public let A: simd_float4x4
+        public init(A: simd_float4x4) { self.A = A }
     }
 
     ///  A側の Peer に座標変換行列を追加
@@ -164,8 +173,9 @@ public class CoordinateTransforms {
         return .success(())
     }
 
-    struct SetBTransformParam: Codable {
-        let B: simd_float4x4
+    public struct SetBTransformParam: Codable, Sendable {
+        public let B: simd_float4x4
+        public init(B: simd_float4x4) { self.B = B }
     }
 
     ///  B側の Peer に座標変換行列を追加
@@ -180,8 +190,9 @@ public class CoordinateTransforms {
         return .success(())
     }
 
-    struct SetStateParam: Codable {
-        let state: CoordinateSession.PreparationState
+    public struct SetStateParam: Codable, Sendable {
+        public let state: CoordinateSession.PreparationState
+        public init(state: CoordinateSession.PreparationState) { self.state = state }
     }
 
     ///  座標変換行列の状態を変更
@@ -309,18 +320,18 @@ public class CoordinateTransforms {
 
 ///  座標変換処理を行う構造体
 @available(visionOS 26.0, *)
-struct CoordinateTransformEntity: RPCEntity {
+public struct CoordinateTransformEntity: RPCEntity {
     /// JSON での識別キー
-    static let codingKey = "coordinateTransformEntity"
+    public static let codingKey = "coordinateTransformEntity"
 
     // MARK: - BroadcastMethod（全 Peer へ送信）
 
-    typealias BroadcastMethod = NoMethod<CoordinateTransforms>
+    public typealias BroadcastMethod = NoMethod<CoordinateTransforms>
 
     // MARK: - UnicastMethod（特定 Peer へ送信）
 
-    enum UnicastMethod: RPCUnicastMethod {
-        typealias Handler = CoordinateTransforms
+    public enum UnicastMethod: RPCUnicastMethod {
+        public typealias Handler = CoordinateTransforms
 
         case initMyPeer(CoordinateTransforms.InitMyPeerParam)
         case initOtherPeer(CoordinateTransforms.InitOtherPeerParam)
@@ -334,7 +345,7 @@ struct CoordinateTransformEntity: RPCEntity {
         case resetPeer
 
         // MARK: execute
-        func execute(on handler: Handler) -> RPCResult {
+        public func execute(on handler: Handler) -> RPCResult {
             switch self {
             case .initMyPeer(let p):
                 return handler.initMyPeer(param: p)
@@ -360,7 +371,7 @@ struct CoordinateTransformEntity: RPCEntity {
         }
 
         // MARK: Codable
-        internal enum CodingKeys: CodingKey {
+        public enum CodingKeys: CodingKey {
             case initMyPeer
             case initOtherPeer
             case setTransform

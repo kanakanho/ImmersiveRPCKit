@@ -11,16 +11,16 @@ import ARKit
 @available(visionOS 26.0, *)
 @Observable
 @MainActor
-class PeerManager: NSObject {
+public class PeerManager: NSObject {
     private var sendExchangeDataWrapper: ExchangeDataWrapper
     private var receiveExchangeDataWrapper: ExchangeDataWrapper
     private var mcPeerIDUUIDWrapper: MCPeerIDUUIDWrapper
     private let serviceType: String
-    var session: MCSession
+    public var session: MCSession
     private var advertiser: MCNearbyServiceAdvertiser
     private var browser: MCNearbyServiceBrowser
 
-    init(
+    public init(
         sendExchangeDataWrapper: ExchangeDataWrapper,
         receiveExchangeDataWrapper: ExchangeDataWrapper,
         mcPeerIDUUIDWrapper: MCPeerIDUUIDWrapper,
@@ -65,12 +65,12 @@ class PeerManager: NSObject {
         }
     }
 
-    func start() {
+    public func start() {
         advertiser.startAdvertisingPeer()
         browser.startBrowsingForPeers()
     }
 
-    func stop() {
+    public func stop() {
         advertiser.stopAdvertisingPeer()
         browser.stopBrowsingForPeers()
     }
@@ -121,7 +121,7 @@ class PeerManager: NSObject {
 
 @available(visionOS 26.0, *)
 extension PeerManager: @MainActor MCSessionDelegate {
-    func session(_ session: MCSession, peer peerID: MCPeerID, didChange state: MCSessionState) {
+    public func session(_ session: MCSession, peer peerID: MCPeerID, didChange state: MCSessionState) {
         print("Peer \(peerID.displayName) changed state to \(state)")
         if state == .connected {
             // 同じdisplayNameを持つMCPeerIDがいなかった場合、追加する
@@ -144,22 +144,22 @@ extension PeerManager: @MainActor MCSessionDelegate {
         }
     }
 
-    func session(_ session: MCSession, didReceive data: Data, fromPeer peerID: MCPeerID) {
+    public func session(_ session: MCSession, didReceive data: Data, fromPeer peerID: MCPeerID) {
         Task { @MainActor in
             receiveExchangeDataWrapper.setData(data)
         }
     }
 
     // Unused delegate methods
-    func session(
+    public func session(
         _ session: MCSession, didReceive stream: InputStream, withName streamName: String,
         fromPeer peerID: MCPeerID
     ) {}
-    func session(
+    public func session(
         _ session: MCSession, didStartReceivingResourceWithName resourceName: String,
         fromPeer peerID: MCPeerID, with progress: Progress
     ) {}
-    func session(
+    public func session(
         _ session: MCSession, didFinishReceivingResourceWithName resourceName: String,
         fromPeer peerID: MCPeerID, at localURL: URL?, withError error: Error?
     ) {}
@@ -167,7 +167,7 @@ extension PeerManager: @MainActor MCSessionDelegate {
 
 @available(visionOS 26.0, *)
 extension PeerManager: @MainActor MCNearbyServiceAdvertiserDelegate {
-    func advertiser(
+    public func advertiser(
         _ advertiser: MCNearbyServiceAdvertiser,
         didReceiveInvitationFromPeer peerID: MCPeerID,
         withContext context: Data?,
@@ -176,7 +176,7 @@ extension PeerManager: @MainActor MCNearbyServiceAdvertiserDelegate {
         invitationHandler(true, session)
     }
 
-    func advertiser(
+    public func advertiser(
         _ advertiser: MCNearbyServiceAdvertiser, didNotStartAdvertisingPeer error: Error
     ) {
         print("Failed to start advertising: \(error.localizedDescription)")
@@ -185,7 +185,7 @@ extension PeerManager: @MainActor MCNearbyServiceAdvertiserDelegate {
 
 @available(visionOS 26.0, *)
 extension PeerManager: @MainActor MCNearbyServiceBrowserDelegate {
-    func browser(
+    public func browser(
         _ browser: MCNearbyServiceBrowser,
         foundPeer peerID: MCPeerID,
         withDiscoveryInfo info: [String: String]?
@@ -212,7 +212,7 @@ extension PeerManager: @MainActor MCNearbyServiceBrowserDelegate {
         browser.invitePeer(peerID, to: session, withContext: nil, timeout: 10)
     }
 
-    func browser(_ browser: MCNearbyServiceBrowser, lostPeer peerID: MCPeerID) {
+    public func browser(_ browser: MCNearbyServiceBrowser, lostPeer peerID: MCPeerID) {
         print("Lost peer: \(peerID.displayName)")
     }
 }
