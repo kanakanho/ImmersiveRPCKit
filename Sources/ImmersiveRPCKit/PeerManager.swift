@@ -15,8 +15,7 @@ class PeerManager: NSObject {
     private var sendExchangeDataWrapper: ExchangeDataWrapper
     private var receiveExchangeDataWrapper: ExchangeDataWrapper
     private var mcPeerIDUUIDWrapper: MCPeerIDUUIDWrapper
-
-    private let serviceType = "ImmersiveRPCKit"
+    private let serviceType: String
     var session: MCSession
     private var advertiser: MCNearbyServiceAdvertiser
     private var browser: MCNearbyServiceBrowser
@@ -24,11 +23,13 @@ class PeerManager: NSObject {
     init(
         sendExchangeDataWrapper: ExchangeDataWrapper,
         receiveExchangeDataWrapper: ExchangeDataWrapper,
-        mcPeerIDUUIDWrapper: MCPeerIDUUIDWrapper
+        mcPeerIDUUIDWrapper: MCPeerIDUUIDWrapper,
+        serviceType: String = "ImmersiveRPCKit"
     ) {
         self.sendExchangeDataWrapper = sendExchangeDataWrapper
         self.receiveExchangeDataWrapper = receiveExchangeDataWrapper
         self.mcPeerIDUUIDWrapper = mcPeerIDUUIDWrapper
+        self.serviceType = serviceType
 
         let peerID = mcPeerIDUUIDWrapper.mine
         session = MCSession(peer: peerID, securityIdentity: nil, encryptionPreference: .required)
