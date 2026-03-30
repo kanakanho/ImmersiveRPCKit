@@ -155,7 +155,7 @@ public class RPCModel {
         jsonDecoder.userInfo[.methodRegistry] = methodRegistry
 
         // リクエストキューの再送コールバックを設定
-        requestQueue.onRetry = { [weak self] request in
+        requestQueue.onRetry = { @MainActor [weak self] request in
             self?.resendRequest(request)
         }
 

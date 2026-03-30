@@ -38,7 +38,7 @@ class RequestQueue {
     @ObservationIgnored private var retryTask: Task<Void, Never>?
 
     /// Callback for retrying requests
-    var onRetry: ((RequestSchema) -> Void)?
+    var onRetry: (@MainActor (RequestSchema) -> Void)?
 
     init(timeout: TimeInterval = 1.0, maxRetries: Int = 3) {
         self.timeout = timeout
@@ -47,7 +47,7 @@ class RequestQueue {
     }
 
     private func startRetryLoop() {
-        retryTask = Task { [weak self] in
+        retryTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
                 try? await Task.sleep(for: .seconds(self.timeout))
