@@ -19,7 +19,7 @@ public protocol RPCBroadcastMethod: Codable, Sendable {
     /// このメソッドを実行するハンドラの型
     associatedtype Handler
     /// ハンドラでメソッドを実行し、結果を返す
-    func execute(on handler: Handler) -> RPCResult
+    @MainActor func execute(on handler: Handler) -> RPCResult
     /// 失敗時に再送するかどうか（デフォルト: true）
     var allowRetry: Bool { get }
 }
@@ -39,7 +39,7 @@ public protocol RPCUnicastMethod: Codable, Sendable {
     /// このメソッドを実行するハンドラの型
     associatedtype Handler
     /// ハンドラでメソッドを実行し、結果を返す
-    func execute(on handler: Handler) -> RPCResult
+    @MainActor func execute(on handler: Handler) -> RPCResult
     /// 失敗時に再送するかどうか（デフォルト: true）
     var allowRetry: Bool { get }
 }
