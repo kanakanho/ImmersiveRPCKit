@@ -285,9 +285,5 @@ func calcAffineMatrix(_ A: [[[Double]]], _ B: [[[Double]]]) -> [[Double]] {
     print("default")
     print(affineMatrix)
 
-    affineMatrix = removeScaleAffineMatrix(affineMatrix)
-    print("removeScaleAffineMatrix")
-    print(affineMatrix)
-
     return affineMatrix
 }

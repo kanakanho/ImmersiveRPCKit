@@ -63,6 +63,18 @@ public class CoordinateTransforms {
     /// 計算が完了したアフィン行列
     public var affineMatrixs: [Int: simd_float4x4] = [:]
 
+    private var isHost: Bool {
+        myPeerId > otherPeerId
+    }
+
+    private var hostPeerId: Int {
+        max(myPeerId, otherPeerId)
+    }
+
+    private var clientPeerId: Int {
+        min(myPeerId, otherPeerId)
+    }
+
     public init() {}
 
     public struct InitMyPeerParam: Codable, Sendable {
@@ -103,6 +115,7 @@ public class CoordinateTransforms {
         // 初期化
         session = CoordinateSession(state: .initial)
         otherPeerId = 0
+        requestedTransform = false
         matrixCount = 0
         return .success(())
     }
@@ -115,6 +128,7 @@ public class CoordinateTransforms {
         else {
             return .failure(RPCError("requestTransform: 不正な状態 \(session.state) で呼び出されました"))
         }
+        print("座標変換行列の取得を要求")
         requestedTransform = true
         return .success(())
     }
@@ -123,70 +137,26 @@ public class CoordinateTransforms {
         /// リクエスト元の peerIdHash
         public let peerId: Int
         public let matrix: simd_float4x4
-        public init(peerId: Int, matrix: simd_float4x4) {
-            self.peerId = peerId
-            self.matrix = matrix
-        }
     }
 
     func setTransform(param: SetTransformParam) -> RPCResult {
-        guard session.state == .getTransformMatrixHost || session.state == .getTransformMatrixClient
-        else {
-            return .failure(RPCError("setTransform: 不正な状態 \(session.state) で呼び出されました"))
+        guard otherPeerId != 0 else {
+            return .failure(RPCError("setTransform: otherPeerId が未初期化です"))
         }
-        if myPeerId == param.peerId {
-            if myPeerId > otherPeerId {
-                session.A.append(param.matrix)
-                matrixCount = session.A.count
-            } else {
-                session.B.append(param.matrix)
-                matrixCount = session.B.count
-            }
+
+        print("座標変換行列を受け取りました: peerId=\(param.peerId), matrix=\(param.matrix))")
+
+        if param.peerId == hostPeerId {
+            session.A.append(param.matrix)
+            matrixCount = session.A.count
+        } else if param.peerId == clientPeerId {
+            session.B.append(param.matrix)
+            matrixCount = session.B.count
         } else {
-            if myPeerId > otherPeerId {
-                session.B.append(param.matrix)
-                matrixCount = session.B.count
-            } else {
-                session.A.append(param.matrix)
-                matrixCount = session.A.count
-            }
+            return .failure(RPCError("setTransform: 不明な peerId \(param.peerId)"))
         }
         requestedTransform = false
 
-        return .success(())
-    }
-
-    public struct SetATransformParam: Codable, Sendable {
-        public let A: simd_float4x4
-        public init(A: simd_float4x4) { self.A = A }
-    }
-
-    ///  A側の Peer に座標変換行列を追加
-    ///  - Parameter param: `SetATransformParam`
-    ///  - Returns: `RPCResult`
-    func setATransform(param: SetATransformParam) -> RPCResult {
-        guard session.state == .getTransformMatrixHost || session.state == .getTransformMatrixClient
-        else {
-            return .failure(RPCError("setATransform: 不正な状態 \(session.state) で呼び出されました"))
-        }
-        session.A.append(param.A)
-        return .success(())
-    }
-
-    public struct SetBTransformParam: Codable, Sendable {
-        public let B: simd_float4x4
-        public init(B: simd_float4x4) { self.B = B }
-    }
-
-    ///  B側の Peer に座標変換行列を追加
-    ///  - Parameter param: `SetBTransformParam`
-    ///  - Returns: `RPCResult`
-    func setBTransform(param: SetBTransformParam) -> RPCResult {
-        guard session.state == .getTransformMatrixHost || session.state == .getTransformMatrixClient
-        else {
-            return .failure(RPCError("setBTransform: 不正な状態 \(session.state) で呼び出されました"))
-        }
-        session.B.append(param.B)
         return .success(())
     }
 
@@ -252,7 +222,7 @@ public class CoordinateTransforms {
     }
 
     func setAffineMatrix() -> RPCResult {
-        if myPeerId > otherPeerId {
+        if isHost {
             affineMatrixs[otherPeerId] = session.affineMatrixAtoB
         } else {
             affineMatrixs[otherPeerId] = session.affineMatrixBtoA
@@ -261,60 +231,35 @@ public class CoordinateTransforms {
     }
 
     func getNextIndexFingerTipPosition() -> SIMD3<Float>? {
-        var firstRightFingerMatrix: SIMD3<Float> = .init()
-        if myPeerId < otherPeerId {
-            firstRightFingerMatrix = session.B[0].position
-        } else {
+        guard isHost else {
             print("is not a host")
             return nil
         }
 
-        if matrixCount == 1 {
-            firstRightFingerMatrix = firstRightFingerMatrix + SIMD3<Float>(0, 0.3, 0)
-        } else if matrixCount == 2 {
-            firstRightFingerMatrix = firstRightFingerMatrix + SIMD3<Float>(0.3, 0, 0)
-        } else if matrixCount == 3 {
-            firstRightFingerMatrix = firstRightFingerMatrix + SIMD3<Float>(0, 0, 0.3)
+        var basePosition: SIMD3<Float>?
+
+        if myPeerId == hostPeerId {
+            basePosition = session.A.first?.position
+        } else if myPeerId == clientPeerId {
+            basePosition = session.B.first?.position
         }
 
-        print("firstRightFingerMatrix: \(firstRightFingerMatrix)")
-
-        return firstRightFingerMatrix
-    }
-
-    /// 初期化地点のボールを描画するための座標を取得する関数
-    /// - Returns:
-    ///     - 失敗した場合に理由を与える
-    ///     - 座標
-    ///     - A側かどうか
-    func initBallTransform() -> (RPCResult, simd_float4x4) {
-        if affineMatrixs.isEmpty {
-            return (.failure(RPCError("計算し終わったアフィン行列が空です")), .init())
-        }
-        if myPeerId == 0 || otherPeerId == 0 {
-            return (.failure(RPCError("座標を取得するPeerが取得できません")), .init())
-        }
-        if session.A.isEmpty || session.B.isEmpty {
-            return (.failure(RPCError("座標変換行列が取得できません")), .init())
+        guard let position = basePosition else {
+            print("basePosition is nil")
+            return nil
         }
 
-        guard let affineMatrix = affineMatrixs[otherPeerId] else {
-            return (.failure(RPCError("座標変換行列が取得できません")), .init())
+        let offsetValue: Float = 0.3
+        let offset: SIMD3<Float>
+
+        switch matrixCount {
+        case 1: offset = SIMD3<Float>(0, offsetValue, 0)
+        case 2: offset = SIMD3<Float>(offsetValue, 0, 0)
+        case 3: offset = SIMD3<Float>(0, 0, offsetValue)
+        default: offset = .zero
         }
 
-        var fristRightFingerPos: SIMD3<Float> = .init()
-        if myPeerId > otherPeerId {
-            fristRightFingerPos = session.A[0].position
-        } else {
-            fristRightFingerPos = session.B[0].position
-        }
-
-        let fristRightFingerMatrix = simd_float4x4(pos: fristRightFingerPos)
-
-        return (
-            .success(()),
-            affineMatrix.inverse * fristRightFingerMatrix
-        )
+        return position + offset
     }
 }
 
@@ -336,8 +281,6 @@ public struct CoordinateTransformEntity: RPCEntity {
         case initMyPeer(CoordinateTransforms.InitMyPeerParam)
         case initOtherPeer(CoordinateTransforms.InitOtherPeerParam)
         case setTransform(CoordinateTransforms.SetTransformParam)
-        case setATransform(CoordinateTransforms.SetATransformParam)
-        case setBTransform(CoordinateTransforms.SetBTransformParam)
         case requestTransform
         case clacAffineMatrix
         case setState(CoordinateTransforms.SetStateParam)
@@ -353,10 +296,6 @@ public struct CoordinateTransformEntity: RPCEntity {
                 return handler.initOtherPeer(param: p)
             case .setTransform(let p):
                 return handler.setTransform(param: p)
-            case .setATransform(let p):
-                return handler.setATransform(param: p)
-            case .setBTransform(let p):
-                return handler.setBTransform(param: p)
             case .requestTransform:
                 return handler.requestTransform()
             case .clacAffineMatrix:
@@ -375,8 +314,6 @@ public struct CoordinateTransformEntity: RPCEntity {
             case initMyPeer
             case initOtherPeer
             case setTransform
-            case setATransform
-            case setBTransform
             case requestTransform
             case clacAffineMatrix
             case setState
