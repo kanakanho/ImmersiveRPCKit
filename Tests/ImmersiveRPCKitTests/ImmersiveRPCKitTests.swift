@@ -659,9 +659,9 @@ struct ImmersiveRPCKitAllTests {
             #expect(sent == nil)
         }
 
-        @Test func syncAllToPeer() async throws {
+        @Test func syncToPeer() async throws {
             let req = MockEntity.request(.setValue(.init(value: 1)), to: peer1.hash)
-            let result = model.run(syncAll: req)
+            let result = model.run(sync: req)
             #expect(mockHandler.unicastValues == [1])
             #expect(result.success)
             let sent = try #require(await nextValue(from: sendWrapper))

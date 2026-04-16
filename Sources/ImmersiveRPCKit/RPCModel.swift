@@ -7,6 +7,7 @@
 
 import Foundation
 import MultipeerConnectivity
+import OSLog
 import Observation
 import simd
 
@@ -213,7 +214,7 @@ public class RPCModel {
     //   - run(localOnly:)     — ローカルのみ実行、送信なし
     //   - run(remoteOnly:)    — request.targetPeerId へ unicast 送信のみ
     //   - run(remoteOnly:toEach:) — 複数 Peer へそれぞれ unicast 送信
-    //   - run(syncAll:)       — ローカル実行 + request.targetPeerId へ unicast 送信
+    //   - run(sync:)       — ローカル実行 + request.targetPeerId へ unicast 送信
     //   - run(syncAll:toEach:)— ローカル実行 + 複数 Peer へ unicast 送信
     //   - run(transforming:)  — ローカル実行 + Peer ごとに変換して unicast 送信
 
@@ -232,6 +233,7 @@ public class RPCModel {
         if case .failure = localResult {
             return localResult
         }
+        logRequest(request)
         return send(request)
     }
 
@@ -246,7 +248,8 @@ public class RPCModel {
     /// ```
     @discardableResult
     public func run(localOnly request: RPCLocalRequest) -> RPCResult {
-        methodRegistry.execute(request.method)
+        logRequest(request)
+        return methodRegistry.execute(request.method)
     }
 
     /// UnicastMethod を自端末では実行せず、`request.targetPeerId` へのみ送信する
@@ -256,7 +259,8 @@ public class RPCModel {
     /// ```
     @discardableResult
     public func run(remoteOnly request: RPCUnicastRequest) -> RPCResult {
-        send(request)
+        logRequest(request)
+        return send(request)
     }
 
     /// UnicastMethod を自端末では実行せず、複数 Peer へそれぞれ送信する
@@ -272,14 +276,14 @@ public class RPCModel {
         -> [RPCResult]
     {
         resolvedPeerIds(for: target).map { peerId in
-            send(
-                RPCUnicastRequest(
-                    entityCodingKey: request.entityCodingKey,
-                    method: request.method,
-                    targetPeerId: peerId,
-                    allowRetry: request.allowRetry
-                )
+            let request = RPCUnicastRequest(
+                entityCodingKey: request.entityCodingKey,
+                method: request.method,
+                targetPeerId: peerId,
+                allowRetry: request.allowRetry
             )
+            logRequest(request)
+            return send(request)
         }
     }
 
@@ -288,14 +292,15 @@ public class RPCModel {
     /// ローカル実行が失敗した場合はネットワーク送信をスキップします。
     ///
     /// ```swift
-    /// rpcModel.run(syncAll: ChatEntity.request(.directMessage(.init(text: "hi")), to: peerId))
+    /// rpcModel.run(sync: ChatEntity.request(.directMessage(.init(text: "hi")), to: peerId))
     /// ```
     @discardableResult
-    public func run(syncAll request: RPCUnicastRequest) -> RPCResult {
+    public func run(sync request: RPCUnicastRequest) -> RPCResult {
         let localResult = methodRegistry.execute(request.method)
         if case .failure = localResult {
             return localResult
         }
+        logRequest(request)
         return send(request)
     }
 
@@ -316,14 +321,14 @@ public class RPCModel {
             return [localResult]
         }
         return resolvedPeerIds(for: target).map { peerId in
-            send(
-                RPCUnicastRequest(
-                    entityCodingKey: request.entityCodingKey,
-                    method: request.method,
-                    targetPeerId: peerId,
-                    allowRetry: request.allowRetry
-                )
+            let request = RPCUnicastRequest(
+                entityCodingKey: request.entityCodingKey,
+                method: request.method,
+                targetPeerId: peerId,
+                allowRetry: request.allowRetry
             )
+            logRequest(request)
+            return send(request)
         }
     }
 
@@ -357,6 +362,7 @@ public class RPCModel {
         }
         return resolvedPeerIds(for: target).compactMap { peerId -> RPCResult? in
             guard let request = requestFor(peerId) else { return nil }
+            logRequest(request)
             return send(request)
         }
     }
@@ -384,9 +390,13 @@ public class RPCModel {
         if case .failure = localResult {
             return [localResult]
         }
-        return resolvedPeerIds(for: target).compactMap { peerId -> RPCResult? in
-            guard let affine = affineMatrixFor(peerId) else { return nil }
-            return send(E.request(method.applying(affineMatrix: affine), to: peerId))
+        return resolvedPeerIds(for: target).compactMap { peerId -> RPCResult in
+            guard let affine = affineMatrixFor(peerId) else {
+                return .failure(RPCError("Peer \(peerId) のアフィン行列が取得できませんでした。"))
+            }
+            let request = E.request(method.applying(affineMatrix: affine), to: peerId)
+            logRequest(request)
+            return send(request)
         }
     }
 
@@ -482,6 +492,8 @@ public class RPCModel {
             return error(message: e.message, to: request.peerId)
         }
 
+        logRequest(request)
+
         sendAcknowledgment(requestId: request.id, to: request.peerId)
         return rpcResult
     }
@@ -500,6 +512,7 @@ public class RPCModel {
             return .failure(RPCError("\"\(message)\" の送信エンコードに失敗しました"))
         }
         sendExchangeDataWrapper.setData(requestData, to: peerId)
+        logRequest(schema)
         return .failure(RPCError(message))
     }
 
@@ -528,5 +541,37 @@ public class RPCModel {
         } else {
             sendExchangeDataWrapper.setData(requestData)
         }
+    }
+
+    /// RPCMethod の Logger
+    private let logger = Logger(subsystem: "com.github.kanakanho.ImmersiveRPCKit", category: "RPC")
+    public var isLogging: Bool = false
+
+    private func logRequest(_ schema: RequestSchema) {
+        guard isLogging else { return }
+        let methodInfo = "\(schema.method.entityCodingKey)"
+
+        logger.debug("[recieved]\t \(methodInfo)")
+    }
+
+    private func logRequest(_ request: RPCBroadcastRequest) {
+        guard isLogging else { return }
+        let methodInfo = "\(request.entityCodingKey)"
+
+        logger.debug("[broadcast]\t \(methodInfo)")
+    }
+
+    private func logRequest(_ request: RPCLocalRequest) {
+        guard isLogging else { return }
+        let methodInfo = "\(request.entityCodingKey)"
+
+        logger.debug("[local]\t \(methodInfo)")
+    }
+
+    private func logRequest(_ request: RPCUnicastRequest) {
+        guard isLogging else { return }
+        let methodInfo = "\(request.entityCodingKey)"
+
+        logger.debug("[unicast]\t [to:\(request.targetPeerId)]\t \(methodInfo)")
     }
 }

@@ -56,7 +56,7 @@ struct SelectingPeerView: View {
             }
 
             // hash値が大きい方をホストとする
-            let nextState: CoordinateTransforms.CoordinateSession.PreparationState = rpcModel.mcPeerIDUUIDWrapper.mine.hash > peerIDHash ? .getTransformMatrixClient : .getTransformMatrixHost
+            let nextState: CoordinateTransforms.CoordinateSession.PreparationState = rpcModel.mcPeerIDUUIDWrapper.mine.hash > peerIDHash ? .getTransformMatrixHost : .getTransformMatrixClient
             // 次の画面に遷移する
             let setStateRPCResult = rpcModel.run(localOnly: CoordinateTransformEntity.localRequest(.setState(.init(state: nextState))))
             if case .failure(let e) = setStateRPCResult {

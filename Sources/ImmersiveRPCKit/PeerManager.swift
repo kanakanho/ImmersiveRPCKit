@@ -144,11 +144,11 @@ extension PeerManager: MCSessionDelegate {
             }
             if state == .notConnected {
                 mcPeerIDUUIDWrapper.remove(mcPeerID: peerID)
-                
+
                 // アドバタイズ・ブラウジングを再起動して再接続を待ち受ける
                 advertiser.stopAdvertisingPeer()
                 browser.stopBrowsingForPeers()
-                
+
                 advertiser.delegate = self
                 browser.delegate = self
                 advertiser.startAdvertisingPeer()
@@ -207,7 +207,7 @@ extension PeerManager: MCNearbyServiceBrowserDelegate {
     ) {
         Task { @MainActor in
             print("Found peer: \(peerID.displayName)")
-            
+
             // すでに接続済みのピアは招待しない
             let alreadyConnected = session.connectedPeers.contains(where: {
                 $0.displayName == peerID.displayName
@@ -216,7 +216,7 @@ extension PeerManager: MCNearbyServiceBrowserDelegate {
                 print("Peer \(peerID.displayName) is already connected. Skipping invite.")
                 return
             }
-            
+
             // 相互招待を防ぐため、自分のUUIDが相手より辞書順で大きい場合のみ招待する
             // これにより、3台以上でもどちらか一方のみが招待を送る
             let myName = session.myPeerID.displayName
@@ -224,7 +224,7 @@ extension PeerManager: MCNearbyServiceBrowserDelegate {
                 print("Peer \(peerID.displayName) will invite us (their UUID is larger). Waiting.")
                 return
             }
-            
+
             browser.invitePeer(peerID, to: session, withContext: nil, timeout: 10)
         }
     }

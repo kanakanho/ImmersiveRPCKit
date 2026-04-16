@@ -174,7 +174,7 @@ public struct RPCLocalRequest {
 /// UnicastMethod リクエスト（送信先 Peer ID 必須）
 ///
 /// 直接生成せず、`RPCEntity.request(_:to:)` を使ってください。
-/// このリクエストは `run(remoteOnly:to:)` / `run(syncAll:to:)` に渡せます。
+/// このリクエストは `run(remoteOnly:to:)` / `run(sync:)` / `run(syncAll:to:)` に渡せます。
 public struct RPCUnicastRequest {
     /// この Method が属する Entity の codingKey
     let entityCodingKey: String
@@ -223,7 +223,7 @@ extension RPCEntity {
 
     /// ユニキャスト用リクエストを生成する（送信先 Peer ID 必須）
     ///
-    /// 生成されるリクエストは `run(remoteOnly:to:)` / `run(syncAll:to:)` に渡せます。
+    /// 生成されるリクエストは `run(remoteOnly:to:)`  / `run(sync:)` / `run(syncAll:to:)` に渡せます。
     ///
     /// ```swift
     /// rpcModel.run(remoteOnly: ChatEntity.request(.directMessage(.init(text: "hi")), to: peerId))

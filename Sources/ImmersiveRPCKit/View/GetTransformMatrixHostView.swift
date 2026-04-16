@@ -50,7 +50,7 @@ struct GetTransformMatrixHostView: View {
     }
 
     private func start() {
-        let requestTransformRPCResult = rpcModel.run(remoteOnly: CoordinateTransformEntity.request(.requestTransform, to: coordinateTransforms.otherPeerId))
+        let requestTransformRPCResult = rpcModel.run(sync: CoordinateTransformEntity.request(.requestTransform, to: coordinateTransforms.otherPeerId))
 
         if case .failure(let e) = requestTransformRPCResult {
             errorMessage = e.message

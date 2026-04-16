@@ -281,7 +281,7 @@ var body: some Scene {
 | --------------------- | -------------------------------------------------- | ------------------------------------ |
 | `RPCBroadcastRequest` | `Entity.request(_ method: BroadcastMethod)`        | broadcast のみ（特定 Peer 送信不可） |
 | `RPCLocalRequest`     | `Entity.localRequest(_ method: UnicastMethod)`     | ローカル実行のみ（`to:` 不要）       |
-| `RPCUnicastRequest`   | `Entity.request(_ method: UnicastMethod, to: Int)` | remote unicast・syncAll              |
+| `RPCUnicastRequest`   | `Entity.request(_ method: UnicastMethod, to: Int)` | remote unicast・sync                 |
 
 ```swift
 // BroadcastMethod → RPCBroadcastRequest（特定 Peer への送信には使えない）
@@ -309,7 +309,7 @@ let unicastReq = ChatEntity.request(.directMessage(.init(text: "hi", fromPeerId:
 | `run(remoteOnly:)`                       | `RPCUnicastRequest`                           |      ❌      |  ✅ unicast 1 Peer   | `RPCResult`   |
 | `run(remoteOnly:toEach:)`                | `RPCUnicastRequest` + `RPCUnicastMultiTarget` |      ❌      | ✅ unicast 複数 Peer | `[RPCResult]` |
 | `run(syncAll:)`                          | `RPCBroadcastRequest`                         |      ✅      |     ✅ broadcast     | `RPCResult`   |
-| `run(syncAll:)`                          | `RPCUnicastRequest`                           |      ✅      |  ✅ unicast 1 Peer   | `RPCResult`   |
+| `run(sync:)`.                            | `RPCUnicastRequest`                           |      ✅      |  ✅ unicast 1 Peer   | `RPCResult`   |
 | `run(syncAll:toEach:)`                   | `RPCUnicastRequest` + `RPCUnicastMultiTarget` |      ✅      | ✅ unicast 複数 Peer | `[RPCResult]` |
 | `run(transforming:requestFor:)`          | クロージャ `(Int) -> RPCUnicastRequest?`      |      ✅      |      ✅ unicast      | `[RPCResult]` |
 | `run(transforming:_:_:affineMatrixFor:)` | `RPCTransformableUnicastMethod`               |      ✅      |      ✅ unicast      | `[RPCResult]` |
@@ -326,7 +326,7 @@ let unicastReq = ChatEntity.request(.directMessage(.init(text: "hi", fromPeerId:
 |   ✅    |       ❌       |        ❌         | `run(localOnly:)`                                |
 |   ❌    |       ✅       |        ❌         | `run(remoteOnly: RPCUnicastRequest)`             |
 |   ❌    |       ❌       |        ✅         | `run(remoteOnly:toEach:)`                        |
-|   ✅    |       ✅       |        ❌         | `run(syncAll: RPCUnicastRequest)`                |
+|   ✅    |       ✅       |        ❌         | `run(sync: RPCUnicastRequest)`                   |
 |   ✅    |       ❌       |        ✅         | `run(syncAll:toEach:)` / `run(transforming:...)` |
 |   ✅    |       ✅       |        ✅         | `run(syncAll: RPCBroadcastRequest)`              |
 
@@ -361,14 +361,14 @@ rpcModel.run(
 
 ---
 
-### `run(syncAll:)` — ローカル実行 + unicast
+### `run(sync:)` — ローカル実行 + unicast
 
 ローカルでも実行し、成功したら `request.targetPeerId` の Peer へ送信します。
 **ローカル実行が失敗した場合はネットワーク送信をスキップします。**
 
 ```swift
 rpcModel.run(
-    syncAll: ChatEntity.request(.directMessage(.init(text: "hi", fromPeerId: myId)), to: remotePeerId)
+    sync: ChatEntity.request(.directMessage(.init(text: "hi", fromPeerId: myId)), to: remotePeerId)
 )
 ```
 
@@ -499,7 +499,7 @@ enum UnicastMethod: RPCTransformableUnicastMethod {
 ## RPCUnicastMultiTarget — 複数 Peer 送信先の指定
 
 `run(remoteOnly:toEach:)` / `run(syncAll:toEach:)` / `run(transforming:...)` の複数 Peer 送信に渡します。
-1 Peer への送信は `run(remoteOnly:)` / `run(syncAll:)` を使ってください。
+1 Peer への送信は `run(remoteOnly:)` / `run(sync:)` を使ってください。
 
 | 値              | 送信先                                                     |
 | --------------- | ---------------------------------------------------------- |
@@ -556,7 +556,7 @@ var allowRetry: Bool {
   │  run(remoteOnly:)              → unicast 1 Peer send のみ → RPCResult
   │  run(remoteOnly:toEach:)       → unicast 複数 Peer send のみ → [RPCResult]
   │  run(syncAll:)                 → ローカル execute + broadcast send
-  │  run(syncAll:)                 → ローカル execute + unicast 1 Peer send → RPCResult
+  │  run(sync:)                    → ローカル execute + unicast 1 Peer send → RPCResult
   │  run(syncAll:toEach:)          → ローカル execute + unicast 複数 Peer send → [RPCResult]
   │  run(transforming:requestFor:) → ローカル execute + Peer ごとに変換して unicast send
   │  run(transforming:_:_:...)     → ローカル execute + アフィン自動適用して unicast send

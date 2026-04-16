@@ -16,10 +16,10 @@ struct TransformationMatrixPreparationImmersiveView: View {
     private var rpcModel: RPCModel
     private var coordinateTransforms: CoordinateTransforms
 
-    private let rootEntity = Entity()
-
-    private let rightFingerEntity: ModelEntity = .generateSphere(name: "R", color: SimpleMaterial.Color.white)
-    private let indexFingerTipGuideBall: ModelEntity = .generateSphere(name: "indexFingerTipGuideBall", color: UIColor(red: 0.0, green: 1.0, blue: 0.0, alpha: 0.4), radius: 0.02)
+    @State private var rootEntity = Entity()
+    @State private var indexFingerTipAnchor = AnchorEntity()
+    @State private var rightFingerEntity: ModelEntity = .generateSphere(name: "R", color: SimpleMaterial.Color.white)
+    @State private var indexFingerTipGuideBall: ModelEntity = .generateSphere(name: "indexFingerTipGuideBall", color: UIColor(red: 0.0, green: 1.0, blue: 0.0, alpha: 0.4), radius: 0.02)
 
     init(rpcModel: RPCModel, coordinateTransforms: CoordinateTransforms) {
         self.rpcModel = rpcModel
@@ -40,7 +40,8 @@ struct TransformationMatrixPreparationImmersiveView: View {
             if let unapprovedCapabilities, unapprovedCapabilities.anchor.contains(.hand) {
                 print("User has rejected hand data for your app.")
             } else {
-                let indexFingerTipAnchor = AnchorEntity(.hand(AnchoringComponent.Target.Chirality.right, location: .indexFingerTip), trackingMode: .predicted)
+                print("start tracking hand data.")
+                indexFingerTipAnchor = AnchorEntity(.hand(AnchoringComponent.Target.Chirality.right, location: .indexFingerTip), trackingMode: .predicted)
                 indexFingerTipAnchor.addChild(rightFingerEntity)
                 rootEntity.addChild(indexFingerTipAnchor)
             }
@@ -52,7 +53,6 @@ struct TransformationMatrixPreparationImmersiveView: View {
         }
         .onChange(of: coordinateTransforms.requestedTransform) {
             if coordinateTransforms.requestedTransform {
-                print("immersive coordinateTransforms")
                 fingerSignal(flag: true)
                 Task { @MainActor in
                     try? await Task.sleep(for: .seconds(3))
@@ -60,7 +60,7 @@ struct TransformationMatrixPreparationImmersiveView: View {
                     let latestRightIndexFingerCoordinates: simd_float4x4 = .init(
                         pos: rightFingerEntity.position(relativeTo: nil))
                     let setTransformRPCResult = rpcModel.run(
-                        remoteOnly: CoordinateTransformEntity.request(
+                        sync: CoordinateTransformEntity.request(
                             .setTransform(
                                 .init(
                                     peerId: rpcModel.mcPeerIDUUIDWrapper.mine.hash,
@@ -70,6 +70,7 @@ struct TransformationMatrixPreparationImmersiveView: View {
                             to: coordinateTransforms.otherPeerId
                         )
                     )
+                    print("座標変換行列を送信: peerId=\(rpcModel.mcPeerIDUUIDWrapper.mine.hash), matrix=\(latestRightIndexFingerCoordinates)")
                     if case .failure(let e) = setTransformRPCResult {
                         print("Failed to set transform: \(e)")
                     }
@@ -78,6 +79,10 @@ struct TransformationMatrixPreparationImmersiveView: View {
         }
         .onChange(of: coordinateTransforms.matrixCount) {
             if coordinateTransforms.matrixCount == 0 {
+                return
+            }
+
+            guard coordinateTransforms.session.state == .getTransformMatrixHost else {
                 return
             }
 
