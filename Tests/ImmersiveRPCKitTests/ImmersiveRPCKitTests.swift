@@ -834,4 +834,124 @@ struct ImmersiveRPCKitAllTests {
         }
     }
 
+    // MARK: - CoordinateTransforms テスト
+
+    @Suite struct CoordinateTransformsTests {
+
+        @Test func setTransformFailsWhenPeersAreNotInitialized() {
+            let transforms = CoordinateTransforms()
+
+            let result = transforms.setTransform(
+                param: .init(peerId: 1, matrix: .identity)
+            )
+
+            #expect(!result.success)
+            #expect(result.errorMessage.contains("peerId が未初期化"))
+        }
+
+        @Test func initPeerStateIsStoredInSession() {
+            let transforms = CoordinateTransforms()
+
+            let initMine = transforms.initMyPeer(param: .init(peerId: 100))
+            let initOther = transforms.initOtherPeer(param: .init(peerId: 200))
+
+            #expect(initMine.success)
+            #expect(initOther.success)
+            #expect(transforms.session.myPeerId == 100)
+            #expect(transforms.session.otherPeerId == 200)
+            #expect(transforms.session.isMyPeerInitialized)
+            #expect(transforms.session.isOtherPeerInitialized)
+        }
+
+        @Test func requestTransformRequiresValidState() {
+            let transforms = CoordinateTransforms()
+
+            let failed = transforms.requestTransform()
+            #expect(!failed.success)
+
+            _ = transforms.setState(param: .init(state: .getTransformMatrixHost))
+            let success = transforms.requestTransform()
+            #expect(success.success)
+            #expect(transforms.session.requestedTransform)
+        }
+
+        @Test func setTransformAppendsToABasedOnHostAndClientPeer() {
+            let transforms = CoordinateTransforms()
+            _ = transforms.initMyPeer(param: .init(peerId: 100))
+            _ = transforms.initOtherPeer(param: .init(peerId: 200))
+
+            let hostMatrix = simd_float4x4(pos: .init(1, 0, 0))
+            let clientMatrix = simd_float4x4(pos: .init(0, 1, 0))
+
+            let hostResult = transforms.setTransform(param: .init(peerId: 200, matrix: hostMatrix))
+            let clientResult = transforms.setTransform(param: .init(peerId: 100, matrix: clientMatrix))
+
+            #expect(hostResult.success)
+            #expect(clientResult.success)
+            #expect(transforms.session.A.count == 1)
+            #expect(transforms.session.B.count == 1)
+            #expect(transforms.session.A[0].floatList == hostMatrix.floatList)
+            #expect(transforms.session.B[0].floatList == clientMatrix.floatList)
+        }
+
+        @Test func matrixCountReachesLimitThenStateBecomesConfirm() {
+            let transforms = CoordinateTransforms()
+            _ = transforms.initMyPeer(param: .init(peerId: 100))
+            _ = transforms.initOtherPeer(param: .init(peerId: 200))
+
+            for i in 0..<4 {
+                let matrix = simd_float4x4(pos: .init(Float(i), 0, 0))
+                let result = transforms.setTransform(param: .init(peerId: 200, matrix: matrix))
+                #expect(result.success)
+            }
+
+            #expect(transforms.session.matrixCount == 4)
+            #expect(transforms.session.state == .confirm)
+        }
+
+        @Test func resetPeerClearsSessionButKeepsPersistentAffineMaps() {
+            let transforms = CoordinateTransforms()
+            transforms.affineMatrixs[99] = .identity
+
+            _ = transforms.initMyPeer(param: .init(peerId: 100))
+            _ = transforms.initOtherPeer(param: .init(peerId: 200))
+            _ = transforms.setState(param: .init(state: .prepared))
+            let resetResult = transforms.resetPeer()
+
+            #expect(resetResult.success)
+            #expect(transforms.session.state == .initial)
+            #expect(!transforms.session.isMyPeerInitialized)
+            #expect(!transforms.session.isOtherPeerInitialized)
+            #expect(transforms.affineMatrixs[99] != nil)
+        }
+
+        @Test func setAffineMatrixUsesHostDirection() {
+            let transforms = CoordinateTransforms()
+            transforms.session.myPeerId = 300
+            transforms.session.otherPeerId = 200
+            transforms.session.isMyPeerInitialized = true
+            transforms.session.isOtherPeerInitialized = true
+            transforms.session.affineMatrixAtoB = simd_float4x4(pos: .init(1, 2, 3))
+
+            let result = transforms.setAffineMatrix()
+
+            #expect(result.success)
+            #expect(transforms.affineMatrixs[200]?.floatList == transforms.session.affineMatrixAtoB.floatList)
+        }
+
+        @Test func setAffineMatrixUsesClientDirection() {
+            let transforms = CoordinateTransforms()
+            transforms.session.myPeerId = 100
+            transforms.session.otherPeerId = 200
+            transforms.session.isMyPeerInitialized = true
+            transforms.session.isOtherPeerInitialized = true
+            transforms.session.affineMatrixBtoA = simd_float4x4(pos: .init(4, 5, 6))
+
+            let result = transforms.setAffineMatrix()
+
+            #expect(result.success)
+            #expect(transforms.affineMatrixs[200]?.floatList == transforms.session.affineMatrixBtoA.floatList)
+        }
+    }
+
 }  // end ImmersiveRPCKitAllTests

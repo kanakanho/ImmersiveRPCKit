@@ -13,16 +13,48 @@ import simd
 @Observable
 public class CoordinateTransforms {
     public struct CoordinateSession {
+        /// 交換元の id
+        public var myPeerId: Int
+        /// 交換元 id が初期化済みか
+        public var isMyPeerInitialized: Bool
+        /// 交換先の id
+        public var otherPeerId: Int
+        /// 交換先 id が初期化済みか
+        public var isOtherPeerInitialized: Bool
         /// 座標変換行列のリスト
         public var A: [simd_float4x4]
         /// 座標変換行列のリスト
         public var B: [simd_float4x4]
         /// 座標変換行列の状態
         public var state: PreparationState
+        /// 座標の交換を管理するフラグ
+        public var requestedTransform: Bool
+        ///  座標を交換する回数
+        public var matrixCount: Int {
+            didSet {
+                if matrixCount >= matrixCountLimit {
+                    state = .confirm
+                }
+            }
+        }
+        ///  座標を交換する回数の上限
+        public var matrixCountLimit: Int
         /// A側の座標変換行列からB側の座標変換行列へのアフィン行列
         public var affineMatrixAtoB: simd_float4x4
         /// B側の座標変換行列からA側の座標変換行列へのアフィン行列
         public var affineMatrixBtoA: simd_float4x4
+
+        public var isHost: Bool {
+            myPeerId > otherPeerId
+        }
+
+        public var hostPeerId: Int {
+            max(myPeerId, otherPeerId)
+        }
+
+        public var clientPeerId: Int {
+            min(myPeerId, otherPeerId)
+        }
 
         public enum PreparationState: Codable, Sendable {
             case initial
@@ -34,46 +66,42 @@ public class CoordinateTransforms {
         }
 
         public init(state: PreparationState = .initial) {
+            self.myPeerId = 0
+            self.isMyPeerInitialized = false
+            self.otherPeerId = 0
+            self.isOtherPeerInitialized = false
             self.A = []
             self.B = []
             self.state = state
+            self.requestedTransform = false
+            self.matrixCount = 0
+            self.matrixCountLimit = 4
             self.affineMatrixAtoB = .init()
             self.affineMatrixBtoA = .init()
+        }
+
+        mutating func appendTransform(peerId: Int, matrix: simd_float4x4) -> RPCResult {
+            guard isMyPeerInitialized && isOtherPeerInitialized else {
+                return .failure(RPCError("setTransform: peerId が未初期化です"))
+            }
+
+            if peerId == hostPeerId {
+                A.append(matrix)
+                matrixCount = A.count
+            } else if peerId == clientPeerId {
+                B.append(matrix)
+                matrixCount = B.count
+            } else {
+                return .failure(RPCError("setTransform: 不明な peerId \(peerId)"))
+            }
+
+            return .success(())
         }
     }
 
     public var session: CoordinateSession = .init()
-    /// 座標の交換を管理するフラグ
-    var requestedTransform: Bool = false
-    ///  座標を交換する回数
-    var matrixCount: Int = 0 {
-        didSet {
-            if matrixCount >= matrixCountLimit {
-                session.state = .confirm
-            }
-        }
-    }
-    ///  座標を交換する回数の上限
-    var matrixCountLimit: Int = 4
-
-    /// 交換元の id
-    public var myPeerId: Int = 0
-    /// 交換先の id
-    public var otherPeerId: Int = 0
     /// 計算が完了したアフィン行列
     public var affineMatrixs: [Int: simd_float4x4] = [:]
-
-    private var isHost: Bool {
-        myPeerId > otherPeerId
-    }
-
-    private var hostPeerId: Int {
-        max(myPeerId, otherPeerId)
-    }
-
-    private var clientPeerId: Int {
-        min(myPeerId, otherPeerId)
-    }
 
     public init() {}
 
@@ -89,7 +117,8 @@ public class CoordinateTransforms {
     func initMyPeer(param: InitMyPeerParam) -> RPCResult {
         // 新しく設定を始める CoordinateTransformEntity を定義
         session = CoordinateSession(state: .initial)
-        myPeerId = param.peerId
+        session.myPeerId = param.peerId
+        session.isMyPeerInitialized = true
         return .success(())
     }
 
@@ -104,7 +133,8 @@ public class CoordinateTransforms {
     /// - Parameter param: `InitOtherPeerParam`
     /// - Returns: `RPCResult`
     func initOtherPeer(param: InitOtherPeerParam) -> RPCResult {
-        otherPeerId = param.peerId
+        session.otherPeerId = param.peerId
+        session.isOtherPeerInitialized = true
         return .success(())
     }
 
@@ -114,9 +144,6 @@ public class CoordinateTransforms {
     func resetPeer() -> RPCResult {
         // 初期化
         session = CoordinateSession(state: .initial)
-        otherPeerId = 0
-        requestedTransform = false
-        matrixCount = 0
         return .success(())
     }
 
@@ -129,7 +156,7 @@ public class CoordinateTransforms {
             return .failure(RPCError("requestTransform: 不正な状態 \(session.state) で呼び出されました"))
         }
         print("座標変換行列の取得を要求")
-        requestedTransform = true
+        session.requestedTransform = true
         return .success(())
     }
 
@@ -140,22 +167,13 @@ public class CoordinateTransforms {
     }
 
     func setTransform(param: SetTransformParam) -> RPCResult {
-        guard otherPeerId != 0 else {
-            return .failure(RPCError("setTransform: otherPeerId が未初期化です"))
-        }
-
         print("座標変換行列を受け取りました: peerId=\(param.peerId), matrix=\(param.matrix))")
 
-        if param.peerId == hostPeerId {
-            session.A.append(param.matrix)
-            matrixCount = session.A.count
-        } else if param.peerId == clientPeerId {
-            session.B.append(param.matrix)
-            matrixCount = session.B.count
-        } else {
-            return .failure(RPCError("setTransform: 不明な peerId \(param.peerId)"))
+        let appendResult = session.appendTransform(peerId: param.peerId, matrix: param.matrix)
+        if case .failure = appendResult {
+            return appendResult
         }
-        requestedTransform = false
+        session.requestedTransform = false
 
         return .success(())
     }
@@ -200,8 +218,8 @@ public class CoordinateTransforms {
         let B = session.B
 
         // それぞれの要紤0が4つ存在しなければエラーを返す
-        if A.count != 4 || B.count != 4 {
-            return .failure(RPCError("座標変換行列は4つ必要です"))
+        if A.count != session.matrixCount || B.count != session.matrixCount {
+            return .failure(RPCError("座標変換行列は\(session.matrixCount)つ必要です"))
         }
 
         // ここで座標変換行列を計算する処理を追加
@@ -222,25 +240,25 @@ public class CoordinateTransforms {
     }
 
     func setAffineMatrix() -> RPCResult {
-        if isHost {
-            affineMatrixs[otherPeerId] = session.affineMatrixAtoB
+        if session.isHost {
+            affineMatrixs[session.otherPeerId] = session.affineMatrixAtoB
         } else {
-            affineMatrixs[otherPeerId] = session.affineMatrixBtoA
+            affineMatrixs[session.otherPeerId] = session.affineMatrixBtoA
         }
         return .success(())
     }
 
     func getNextIndexFingerTipPosition() -> SIMD3<Float>? {
-        guard isHost else {
+        guard session.isHost else {
             print("is not a host")
             return nil
         }
 
         var basePosition: SIMD3<Float>?
 
-        if myPeerId == hostPeerId {
+        if session.myPeerId == session.hostPeerId {
             basePosition = session.A.first?.position
-        } else if myPeerId == clientPeerId {
+        } else if session.myPeerId == session.clientPeerId {
             basePosition = session.B.first?.position
         }
 
@@ -252,7 +270,7 @@ public class CoordinateTransforms {
         let offsetValue: Float = 0.3
         let offset: SIMD3<Float>
 
-        switch matrixCount {
+        switch session.matrixCount {
         case 1: offset = SIMD3<Float>(0, offsetValue, 0)
         case 2: offset = SIMD3<Float>(offsetValue, 0, 0)
         case 3: offset = SIMD3<Float>(0, 0, offsetValue)

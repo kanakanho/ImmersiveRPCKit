@@ -51,8 +51,8 @@ struct TransformationMatrixPreparationImmersiveView: View {
         .onChange(of: coordinateTransforms.session.state) { _, newState in
             rootEntity.isEnabled = newState != .initial
         }
-        .onChange(of: coordinateTransforms.requestedTransform) {
-            if coordinateTransforms.requestedTransform {
+        .onChange(of: coordinateTransforms.session.requestedTransform) {
+            if coordinateTransforms.session.requestedTransform {
                 fingerSignal(flag: true)
                 Task { @MainActor in
                     try? await Task.sleep(for: .seconds(3))
@@ -67,7 +67,7 @@ struct TransformationMatrixPreparationImmersiveView: View {
                                     matrix: latestRightIndexFingerCoordinates
                                 )
                             ),
-                            to: coordinateTransforms.otherPeerId
+                            to: coordinateTransforms.session.otherPeerId
                         )
                     )
                     print("座標変換行列を送信: peerId=\(rpcModel.mcPeerIDUUIDWrapper.mine.hash), matrix=\(latestRightIndexFingerCoordinates)")
@@ -77,8 +77,8 @@ struct TransformationMatrixPreparationImmersiveView: View {
                 }
             }
         }
-        .onChange(of: coordinateTransforms.matrixCount) {
-            if coordinateTransforms.matrixCount == 0 {
+        .onChange(of: coordinateTransforms.session.matrixCount) {
+            if coordinateTransforms.session.matrixCount == 0 {
                 return
             }
 
@@ -93,9 +93,8 @@ struct TransformationMatrixPreparationImmersiveView: View {
             }
             enableIndexFingerTipGuideBall(position: nextPos)
         }
-        .onChange(of: coordinateTransforms.affineMatrixs) { _, newMatrixs in
+        .onChange(of: coordinateTransforms.affineMatrixs) {
             disableIndexFingerTipGuideBall()
-            rpcModel.affineMatrixProvider = { peerId in newMatrixs[peerId] }
         }
     }
 

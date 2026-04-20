@@ -47,6 +47,9 @@ public struct TransformationMatrixPreparationView: View {
             Spacer()
         }
         .onAppear {
+            rpcModel.affineMatrixProvider = { [weak coordinateTransforms] peerId in
+                return coordinateTransforms?.affineMatrixs[peerId]
+            }
             _ = rpcModel.run(localOnly: CoordinateTransformEntity.localRequest(.initMyPeer(.init(peerId: rpcModel.mcPeerIDUUIDWrapper.mine.hash))))
         }
     }
