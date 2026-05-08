@@ -42,13 +42,22 @@ Entity は RPC の「名前空間」です。`BroadcastMethod`（全 Peer へ br
 class ChatHandler {
     var messages: [String] = []
 
-    func send(text: String) -> RPCResult {
-        messages.append(text)
+    struct SendMessageParam: Codable { 
+        let text: String 
+    }
+
+    func send(param: SendMessageParam) -> RPCResult {
+        messages.append(param.text)
         return RPCResult()
     }
 
-    func directMessage(text: String, from peer: Int) -> RPCResult {
-        messages.append("[DM:\(peer)] \(text)")
+    struct DirectMessageParam: Codable { 
+        let text: String; 
+        let fromPeerId: Int 
+    }
+
+    func directMessage(param: DirectMessageParam) -> RPCResult {
+        messages.append("[DM:\(param.fromPeerId)] \(param.text)")
         return RPCResult()
     }
 }
@@ -61,8 +70,7 @@ struct ChatEntity: RPCEntity {
     // 全 Peer へ broadcast するメソッド
     enum BroadcastMethod: RPCBroadcastMethod {
         typealias Handler = ChatHandler
-        case sendMessage(SendMessageParam)
-        struct SendMessageParam: Codable { let text: String }
+        case sendMessage(Handler.SendMessageParam)
 
         func execute(on handler: ChatHandler) -> RPCResult {
             switch self {
@@ -75,13 +83,12 @@ struct ChatEntity: RPCEntity {
     // 特定 Peer へ unicast するメソッド
     enum UnicastMethod: RPCUnicastMethod {
         typealias Handler = ChatHandler
-        case directMessage(DirectMessageParam)
-        struct DirectMessageParam: Codable { let text: String; let fromPeerId: Int }
+        case directMessage(Handler.DirectMessageParam)
 
         func execute(on handler: ChatHandler) -> RPCResult {
             switch self {
             case .directMessage(let p):
-                return handler.directMessage(text: p.text, from: p.fromPeerId)
+                return handler.directMessage(text: p.text, fromPeerId: p.fromPeerId)
             }
         }
         enum CodingKeys: CodingKey { case directMessage }
